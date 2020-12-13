@@ -34,7 +34,6 @@
     "electron-squirrel-startup": "^1.0.0",
     "electron-store": "^6.0.1",
     "express": "^4.17.1",
-    "tmp": "^0.2.1",
     "ws": "^7.4.0"
   },
   "config": {
