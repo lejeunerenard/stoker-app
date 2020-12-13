@@ -2,15 +2,26 @@
   "name": "stoker-ii",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "src/index.js",
   "scripts": {
-    "build": "browserify app.js -o public/bundle.js",
-    "test": "eslint **/*.js"
+    "build": "browserify app.js -o src/public/bundle.js",
+    "update-env": "echo '{ \"code_version\": \"'`git rev-parse HEAD`'\"}' > src/env.json",
+    "test": "eslint **/*.js",
+    "start": "npm run update-env; cross-env ELECTRON_ENV=development electron-forge start",
+    "package": "npm run update-env; electron-forge package",
+    "make": "run update-env; electron-forge make"
   },
   "keywords": [],
   "author": "Sean Zellmer <sean@lejeunerenard.com> (http://lejeunerenard.com/)",
   "license": "MIT",
   "devDependencies": {
+    "@electron-forge/cli": "^6.0.0-beta.54",
+    "@electron-forge/maker-deb": "^6.0.0-beta.54",
+    "@electron-forge/maker-rpm": "^6.0.0-beta.54",
+    "@electron-forge/maker-squirrel": "^6.0.0-beta.54",
+    "@electron-forge/maker-zip": "^6.0.0-beta.54",
+    "cross-env": "^7.0.3",
+    "electron": "11.1.0",
     "eslint": "^7.14.0",
     "eslint-config-standard": "^16.0.2",
     "eslint-plugin-import": "^2.22.1",
@@ -20,7 +31,35 @@
   "dependencies": {
     "axios": "^0.21.0",
     "chart.js": "^2.9.4",
+    "electron-squirrel-startup": "^1.0.0",
     "express": "^4.17.1",
     "ws": "^7.4.0"
+  },
+  "config": {
+    "forge": {
+      "packagerConfig": {},
+      "makers": [
+        {
+          "name": "@electron-forge/maker-squirrel",
+          "config": {
+            "name": "stoker_ii"
+          }
+        },
+        {
+          "name": "@electron-forge/maker-zip",
+          "platforms": [
+            "darwin"
+          ]
+        },
+        {
+          "name": "@electron-forge/maker-deb",
+          "config": {}
+        },
+        {
+          "name": "@electron-forge/maker-rpm",
+          "config": {}
+        }
+      ]
+    }
   }
 }

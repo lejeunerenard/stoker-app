@@ -1,6 +1,8 @@
 const Chart = require('chart.js')
 const axios = require('axios').default
 
+const { PORT, WS_PORT } = require('../variables.json')
+
 let chart = null
 
 function initChart () {
@@ -82,7 +84,7 @@ function massageData (data) {
 const temps = document.createElement('div')
 document.body.appendChild(temps)
 
-const ws = new WebSocket('ws://' + window.location.hostname + ':4001')
+const ws = new WebSocket('ws://' + (window.location.hostname ? window.location.hostname : 'localhost') + ':' + WS_PORT)
 ws.onopen = () => {
   console.log('ws connected')
 }
@@ -110,7 +112,7 @@ ws.onmessage = ({ data }) => {
   temps.innerHTML = output
 }
 
-axios.get('/data')
+axios.get(`http://localhost:${PORT}/data`)
   .then((response) => {
     const data = response.data
     for (let i = 0; i < data.length; i++) {

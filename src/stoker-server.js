@@ -1,11 +1,10 @@
-const Stoker = require('../')
+const Stoker = require('./stoker')
 const fs = require('fs')
 const path = require('path')
 const express = require('express')
 const WebSocket = require('ws')
 
-const PORT = 4000
-const WS_PORT = 4001
+const { WS_PORT } = require('./variables.json')
 const STOKER_IP = '192.168.1.31'
 
 const stoker = new Stoker(STOKER_IP)
@@ -32,10 +31,6 @@ app.get('/data', (req, res) => {
   res.send(JSON.stringify(currentSessionData))
 })
 
-app.listen(PORT, () => {
-  console.log(`Website listening at http://localhost:${PORT}`)
-})
-
 const wss = new WebSocket.Server({ port: WS_PORT })
 wss.on('connection', (ws) => {
   console.log('client connected')
@@ -45,5 +40,4 @@ wss.on('connection', (ws) => {
   })
 })
 
-// const sensorsConnectedToBlower = ['01000012C22AA130']
-// stoker.setBlower(false, sensorsConnectedToBlower)
+module.exports = app
