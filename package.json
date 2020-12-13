@@ -9,7 +9,7 @@
     "test": "eslint **/*.js",
     "start": "npm run update-env; cross-env ELECTRON_ENV=development electron-forge start",
     "package": "npm run update-env; electron-forge package",
-    "make": "run update-env; electron-forge make"
+    "make": "npm run update-env; electron-forge make"
   },
   "keywords": [],
   "author": "Sean Zellmer <sean@lejeunerenard.com> (http://lejeunerenard.com/)",
