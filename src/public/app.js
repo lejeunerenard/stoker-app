@@ -1,5 +1,6 @@
 const Chart = require('chart.js')
 const axios = require('axios').default
+const { ipcRenderer } = require('electron')
 
 const { PORT, WS_PORT } = require('../variables.json')
 
@@ -81,35 +82,79 @@ function massageData (data) {
   }, {})
 }
 
-const temps = document.createElement('div')
-document.body.appendChild(temps)
+const info = document.createElement('div')
+document.body.appendChild(info)
 
 const ws = new WebSocket('ws://' + (window.location.hostname ? window.location.hostname : 'localhost') + ':' + WS_PORT)
 ws.onopen = () => {
   console.log('ws connected')
 }
 
-ws.onmessage = ({ data }) => {
-  data = JSON.parse(data)
-  renderChart(data)
+const state = {
+  data: [],
+  stokerIP: null,
+  errors: []
+}
+
+function render (state) {
+  let output = ''
+  for (const error of state.errors) {
+    output += '<div class="error">' + error + '</div>'
+  }
+
+  output += renderLastest(state)
+  info.innerHTML = output
+}
+
+function renderLastest (state) {
+  const data = state.data
+  const recentData = data[data.length - 1]
+
+  if (!recentData) return ''
 
   let output = '<table>'
 
-  const time = new Date(data.timestamp)
+  const time = new Date(recentData.timestamp)
   output += `<tr><td colspan=2>Last Update ${time.getHours() + ':' + zeroPad(time.getMinutes()) + ':' + zeroPad(time.getSeconds())}</td></tr>`
   output += '<tr><td colspan=2><b>Sensors</b></td></tr>'
-  for (const temp of data.stoker.sensors) {
+  for (const temp of recentData.stoker.sensors) {
     output += `<tr><td>${temp.name}</td><td>${temp.tempCurrent}ºF</td></tr>`
   }
 
   output += '<tr><td colspan=2><b>Blowers</b></td></tr>'
-  for (const blower of data.stoker.blowers) {
+  for (const blower of recentData.stoker.blowers) {
     output += `<tr><td>${blower.name}</td><td>${(blower.on) ? 'On' : 'Off'}</td></tr>`
   }
 
   output += '</table>'
+  return output
+}
 
-  temps.innerHTML = output
+function initState () {
+  ipcRenderer.send('store:get', 'stokerIP')
+  ipcRenderer.once('store:get:stokerIP', (event, ip) => {
+    if (ip) {
+      state.stokerIP = ip
+      render(state)
+    }
+  })
+}
+
+initState()
+
+ipcRenderer.on('stoker:not-found', () => {
+  state.errors = []
+  state.errors.push(`Stoker cannot be found at ${state.stokerIP}`)
+  render(state)
+})
+
+ws.onmessage = ({ data }) => {
+  data = JSON.parse(data)
+  renderChart(data)
+
+  state.data.push(data)
+
+  render(data)
 }
 
 axios.get(`http://localhost:${PORT}/data`)

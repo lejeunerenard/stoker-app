@@ -33,6 +33,8 @@ class Stoker extends EventEmitter {
           data.stoker.sensors[i].tempCurrent = data.stoker.sensors[i].tc
         }
         this.emit('data', data)
+      }).catch((e) => {
+        this.emit('error', e)
       })
   }
 
@@ -58,7 +60,9 @@ class Stoker extends EventEmitter {
     return axios.post(
       'http://' + this.ip + '/stoker.Post_Handler',
       querystring.stringify(form)
-    )
+    ).catch((e) => {
+      this.emit('error', e)
+    })
   }
 }
 module.exports = Stoker

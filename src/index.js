@@ -3,9 +3,14 @@ const { app, Menu, dialog, BrowserWindow, ipcMain } = require('electron')
 
 const fs = require('fs')
 const path = require('path')
-const tmp = require('tmp')
+const Store = require('electron-store')
+
+const STOKER_IP = '192.168.1.31'
 
 const stokerServer = require('./stoker-server')
+const store = new Store({
+  name: 'stoker-ii'
+})
 
 const { PORT } = require('./variables.json')
 
@@ -94,12 +99,29 @@ app.on('renderer-process-crashed', (event, webContents, killed) => {
   console.error('event', event, 'webContents', webContents, 'killed', killed)
 })
 
+// Setup Settings IPC redirect
+ipcMain.on('store:set', (event, { field, data }) => {
+  store.set(field, data)
+})
+
+ipcMain.on('store:get', (event, field) => {
+  mainWindow.webContents.send('store:get:' + field, store.get(field))
+})
+
 // Stoker Server
+if (store.get('stokerIP')) {
+  stokerServer.emit('stoker:setip', store.get('stokerIP'))
+} else {
+  stokerServer.emit('stoker:setip', STOKER_IP)
+  store.set('stokerIP', STOKER_IP)
+}
+
 stokerServer.listen(PORT, () => {
   console.log(`Website listening at http://localhost:${PORT}`)
 })
-
-// // Printer info
-// ipcMain.on('printer:getPrinters', (event) => {
-//   mainWindow.webContents.send('printer:getPrinters:response', mainWindow.webContents.getPrinters())
-// })
+stokerServer.on('stoker:not-found', (e) => {
+  mainWindow.webContents.send('stoker:not-found')
+})
+stokerServer.on('error', (e) => {
+  console.log('error', e)
+})
