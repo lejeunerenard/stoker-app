@@ -9,7 +9,7 @@ const { WS_PORT } = require('./variables.json')
 let stoker = null
 
 const today = new Date()
-const filename = today.getFullYear() + '-' + today.getMonth() + '-' + today.getDate() + '.json'
+const filename = today.getFullYear() + '-' + (today.getMonth() + 1) + '-' + today.getDate() + '.json'
 const currentSessionData = []
 
 const app = express()
