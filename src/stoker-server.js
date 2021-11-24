@@ -36,7 +36,7 @@ function setupStoker (ip) {
 
 app.on('stoker:setip', setupStoker)
 
-app.use(express.static('public'))
+app.use(express.static('src/public'))
 
 app.get('/data', (req, res) => {
   res.send(JSON.stringify(currentSessionData))
