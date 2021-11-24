@@ -138,6 +138,7 @@ function initState () {
       render(state)
     }
   })
+  render(state)
 }
 
 initState()
@@ -154,7 +155,7 @@ ws.onmessage = ({ data }) => {
 
   state.data.push(data)
 
-  render(data)
+  render(state)
 }
 
 axios.get(`http://localhost:${PORT}/data`)
