@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <title></title>
   <script>
-  var env = process.env.ELECTRON_ENV !== 'development' ? 'production' : process.env.ELECTRON_ENV
+  var env = 'production'
   var payload = {
       environment: env,
   }
-  var codeVersion = require('../env.json').code_version
+  var codeVersion = null
   if (codeVersion) {
       payload.client = payload.client || {}
       payload.client.javascript = payload.client.javascript || {}
@@ -28,6 +28,6 @@
 <body>
   <h1>Stoker</h1>
   <canvas></canvas>
-  <script async src="app.js"></script>
+  <script async src="bundle.js"></script>
 </body>
 </html>

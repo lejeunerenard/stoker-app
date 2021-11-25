@@ -1,5 +1,6 @@
 const os = require('os')
 const { app, Menu, dialog, BrowserWindow, ipcMain } = require('electron')
+const net = require('net')
 
 const fs = require('fs')
 const path = require('path')
@@ -34,7 +35,7 @@ const createWindow = () => {
   })
 
   // and load the index.html of the app.
-  mainWindow.loadURL(`file://${__dirname}/public/index.html`)
+  mainWindow.loadURL(`file://${__dirname}/public/app-renderer.html`)
 
   // Open the DevTools.
   if (process.env.ELECTRON_ENV === 'development') {
@@ -116,11 +117,41 @@ if (store.get('stokerIP')) {
   store.set('stokerIP', STOKER_IP)
 }
 
+// Get WS PORT
+function portInUse (port, callback) {
+  let server = net.createServer(function(socket) {
+    socket.write('Echo server\r\n');
+    socket.pipe(socket)
+  })
+
+  server.on('error', function (e) {
+    callback(true)
+  })
+  server.on('listening', function (e) {
+    server.close()
+    callback(false)
+  })
+
+  server.listen(port, '0.0.0.0')
+}
+
+async function findPort (port = 5011) {
+  let isUsed = await new Promise((resolve, reject) => {
+    portInUse(port, resolve)
+  })
+
+  if (isUsed) return findPort(port + 1)
+
+  return port
+}
+
+(async () => {
+  const WS_PORT = await findPort()
+  stokerServer.emit('stoker:setwsport', WS_PORT)
+})()
+
 stokerServer.listen(PORT, () => {
   console.log(`Website listening at http://localhost:${PORT}`)
-})
-stokerServer.on('stoker:not-found', (e) => {
-  mainWindow.webContents.send('stoker:not-found')
 })
 stokerServer.on('error', (e) => {
   console.log('error', e)

@@ -1,8 +1,8 @@
 const Chart = require('chart.js')
 const axios = require('axios').default
-const { ipcRenderer } = require('electron')
+const EventEmitter = require('events').EventEmitter
 
-const { PORT, WS_PORT } = require('../variables.json')
+const { PORT } = require('../variables.json')
 
 let chart = null
 
@@ -85,11 +85,6 @@ function massageData (data) {
 const info = document.createElement('div')
 document.body.appendChild(info)
 
-const ws = new WebSocket('ws://' + (window.location.hostname ? window.location.hostname : 'localhost') + ':' + WS_PORT)
-ws.onopen = () => {
-  console.log('ws connected')
-}
-
 const state = {
   data: [],
   stokerIP: null,
@@ -130,35 +125,62 @@ function renderLastest (state) {
   return output
 }
 
+const appBus = new EventEmitter()
+
 function initState () {
-  ipcRenderer.send('store:get', 'stokerIP')
-  ipcRenderer.once('store:get:stokerIP', (event, ip) => {
+  // Stoker IP
+  appBus.once('store:get:stokerIP', (event, ip) => {
     if (ip) {
       state.stokerIP = ip
       render(state)
     }
   })
+  appBus.on('stoker:not-found', () => {
+    state.errors = []
+    state.errors.push(`Stoker cannot be found at ${state.stokerIP}`)
+    render(state)
+  })
+
+  // Update state w/ new data
+  appBus.on('data', (data) => {
+    renderChart(data)
+    state.data.push(data)
+    render(state)
+  })
+
   render(state)
 }
 
 initState()
 
-ipcRenderer.on('stoker:not-found', () => {
-  state.errors = []
-  state.errors.push(`Stoker cannot be found at ${state.stokerIP}`)
-  render(state)
-})
+function setupWS (port, bus) {
+  const ws = new WebSocket('ws://' + (window.location.hostname ? window.location.hostname : 'localhost') + ':' + port)
+  ws.onopen = () => {
+    console.log('ws connected')
+    bus.on('store:get', (field) => {
+      ws.send(JSON.stringify({ event: 'store:get', data: field }))
+    })
 
-ws.onmessage = ({ data }) => {
-  data = JSON.parse(data)
-  renderChart(data)
+    // Now connection is open, get info
+    bus.emit('store:get', 'stokerIP')
+  }
 
-  state.data.push(data)
-
-  render(state)
+  ws.onmessage = ({ data }) => {
+    data = JSON.parse(data)
+    bus.emit(data.event, data.data)
+  }
 }
 
-axios.get(`http://localhost:${PORT}/data`)
+function getWSPort () {
+  axios.get(`http://${window.location.hostname ? window.location.hostname : 'localhost'}:${PORT}/ws-port`)
+    .then((response) => {
+      const port = response.data
+      setupWS(port, appBus)
+    })
+}
+
+getWSPort()
+axios.get(`http://${window.location.hostname ? window.location.hostname : 'localhost'}:${PORT}/data`)
   .then((response) => {
     const data = response.data
     for (let i = 0; i < data.length; i++) {
