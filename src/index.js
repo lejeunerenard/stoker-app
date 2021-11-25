@@ -106,7 +106,7 @@ ipcMain.on('store:set', (event, { field, data }) => {
 })
 
 ipcMain.on('store:get', (event, field) => {
-  mainWindow.webContents.send('store:get:' + field, store.get(field))
+  event.sender.send('store:get:' + field, store.get(field))
 })
 
 // Stoker Server
