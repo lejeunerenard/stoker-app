@@ -76,10 +76,14 @@ function renderChart (data, render = true) {
 }
 
 function massageData (data) {
-  return data.stoker.sensors.reduce((prev, data) => {
-    prev[data.name] = data.tempCurrent
-    return prev
-  }, {})
+  if (data.stoker.sensors) {
+    return data.stoker.sensors.reduce((prev, data) => {
+      prev[data.name] = data.tempCurrent
+      return prev
+    }, {})
+  }
+
+  return []
 }
 
 const info = document.createElement('div')
@@ -112,13 +116,21 @@ function renderLastest (state) {
   const time = new Date(recentData.timestamp)
   output += `<tr><td colspan=2>Last Update ${time.getHours() + ':' + zeroPad(time.getMinutes()) + ':' + zeroPad(time.getSeconds())}</td></tr>`
   output += '<tr><td colspan=2><b>Sensors</b></td></tr>'
-  for (const temp of recentData.stoker.sensors) {
-    output += `<tr><td>${temp.name}</td><td>${temp.tempCurrent}ºF</td></tr>`
+  if (recentData.stoker.sensors) {
+    for (const temp of recentData.stoker.sensors) {
+      output += `<tr><td>${temp.name}</td><td>${temp.tempCurrent}ºF</td></tr>`
+    }
+  } else {
+    output += '<tr><td colspan="100%">No Sensors Found</td></tr>'
   }
 
   output += '<tr><td colspan=2><b>Blowers</b></td></tr>'
-  for (const blower of recentData.stoker.blowers) {
-    output += `<tr><td>${blower.name}</td><td>${(blower.on) ? 'On' : 'Off'}</td></tr>`
+  if (recentData.stoker.blowers) {
+    for (const blower of recentData.stoker.blowers) {
+      output += `<tr><td>${blower.name}</td><td>${(blower.on) ? 'On' : 'Off'}</td></tr>`
+    }
+  } else {
+    output += '<tr><td colspan="100%">No Blowers Found</td></tr>'
   }
 
   output += '</table>'

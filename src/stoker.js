@@ -9,11 +9,13 @@ class Stoker extends EventEmitter {
     this.state = {}
 
     this.on('data', (data) => {
-      for (const sensor of data.stoker.sensors) {
-        this.emit('temp', {
-          name: sensor.name,
-          temperature: sensor.tempCurrent
-        })
+      if (data.stoker.sensors) {
+        for (const sensor of data.stoker.sensors) {
+          this.emit('temp', {
+            name: sensor.name,
+            temperature: sensor.tempCurrent
+          })
+        }
       }
     })
 
@@ -28,9 +30,11 @@ class Stoker extends EventEmitter {
         this.state = response.data
 
         const data = Object.assign({}, response.data, { timestamp: (new Date()).toISOString() })
-        for (let i = 0; i < data.stoker.sensors.length; i++) {
-          data.stoker.sensors[i].tempTarget = data.stoker.sensors[i].ta
-          data.stoker.sensors[i].tempCurrent = data.stoker.sensors[i].tc
+        if (data.stoker.sensors) {
+          for (let i = 0; i < data.stoker.sensors.length; i++) {
+            data.stoker.sensors[i].tempTarget = data.stoker.sensors[i].ta
+            data.stoker.sensors[i].tempCurrent = data.stoker.sensors[i].tc
+          }
         }
         this.emit('data', data)
       }).catch((e) => {
