@@ -1,133 +1,6 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);throw new Error("Cannot find module '"+o+"'")}var f=n[o]={exports:{}};t[o][0].call(f.exports,function(e){var n=t[o][1][e];return s(n?n:e)},f,f.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
-const Chart = require('chart.js')
-const axios = require('axios').default
-
-let chart = null
-
-function initChart () {
-  const canvas = document.querySelector('canvas')
-  const ctx = canvas.getContext('2d')
-  chart = new Chart(ctx, {
-    type: 'line',
-    options: {
-      tooltips: {
-        mode: 'index',
-        intersect: false
-      },
-      hover: {
-        mode: 'nearest',
-        intersect: true
-      }
-    }
-  })
-}
-
-function zeroPad (number) {
-  const padding = number < 10 ? '0' : ''
-  return padding + number
-}
-
-function getOptions (index) {
-  const colors = [[255, 0, 0], [0, 255, 0], [0, 0, 255]]
-
-  const color = colors[index % colors.length]
-
-  console.log('color', color)
-  return {
-    backgroundColor: `rgba(${color[0]}, ${color[1]}, ${color[2]}, 0.1)`,
-    borderColor: `rgba(${color[0]}, ${color[1]}, ${color[2]}, 0.9)`
-  }
-}
-
-function renderChart (data, render = true) {
-  if (!chart) initChart()
-
-  const time = new Date(data.timestamp)
-  chart.data.labels.push(time.getHours() + ':' + zeroPad(time.getMinutes()) + ':' + zeroPad(time.getSeconds()))
-  const datapoints = massageData(data)
-
-  for (const [label, value] of Object.entries(datapoints)) {
-    // Attempt to find an existing dataset
-    let found = false
-    for (let i = 0; i < chart.data.datasets.length; i++) {
-      const dataset = chart.data.datasets[i]
-      if (dataset.label === label) {
-        found = true
-        dataset.data.push(datapoints[label])
-        break
-      }
-    }
-
-    if (!found) {
-      const opt = Object.assign({}, {
-        label,
-        data: [value],
-        fill: false
-      }, getOptions(chart.data.datasets.length))
-      console.log('opt', opt)
-
-      chart.data.datasets.push(opt)
-    }
-  }
-
-  if (render) {
-    chart.update()
-  }
-}
-
-function massageData (data) {
-  return data.stoker.sensors.reduce((prev, data) => {
-    prev[data.name] = data.tempCurrent
-    return prev
-  }, {})
-}
-
-const temps = document.createElement('div')
-document.body.appendChild(temps)
-
-const ws = new WebSocket('ws://' + window.location.hostname + ':4001')
-ws.onopen = () => {
-  console.log('ws connected')
-}
-
-ws.onmessage = ({ data }) => {
-  data = JSON.parse(data)
-  console.log('data', data)
-  renderChart(data)
-
-  let output = '<table>'
-
-  const time = new Date(data.timestamp)
-  output += `<tr><td colspan=2>Last Update ${time.getHours() + ':' + zeroPad(time.getMinutes()) + ':' + zeroPad(time.getSeconds())}</td></tr>`
-  output += '<tr><td colspan=2><b>Sensors</b></td></tr>'
-  for (const temp of data.stoker.sensors) {
-    output += `<tr><td>${temp.name}</td><td>${temp.tempCurrent}ºF</td></tr>`
-  }
-
-  output += '<tr><td colspan=2><b>Blowers</b></td></tr>'
-  for (const blower of data.stoker.blowers) {
-    output += `<tr><td>${blower.name}</td><td>${(blower.on) ? 'On' : 'Off'}</td></tr>`
-  }
-
-  output += '</table>'
-
-  temps.innerHTML = output
-}
-
-axios.get('/data')
-  .then((response) => {
-    const data = response.data
-    console.log('data', data)
-    for (let i = 0; i < data.length; i++) {
-      const datapoint = data[i]
-      const update = i === data.length - 1
-      renderChart(datapoint, update)
-    }
-  })
-
-},{"axios":2,"chart.js":28}],2:[function(require,module,exports){
 module.exports = require('./lib/axios');
-},{"./lib/axios":4}],3:[function(require,module,exports){
+},{"./lib/axios":3}],2:[function(require,module,exports){
 'use strict';
 
 var utils = require('./../utils');
@@ -308,7 +181,7 @@ module.exports = function xhrAdapter(config) {
   });
 };
 
-},{"../core/buildFullPath":10,"../core/createError":11,"./../core/settle":15,"./../helpers/buildURL":19,"./../helpers/cookies":21,"./../helpers/isURLSameOrigin":23,"./../helpers/parseHeaders":25,"./../utils":27}],4:[function(require,module,exports){
+},{"../core/buildFullPath":9,"../core/createError":10,"./../core/settle":14,"./../helpers/buildURL":18,"./../helpers/cookies":20,"./../helpers/isURLSameOrigin":22,"./../helpers/parseHeaders":24,"./../utils":26}],3:[function(require,module,exports){
 'use strict';
 
 var utils = require('./utils');
@@ -363,7 +236,7 @@ module.exports = axios;
 // Allow use of default import syntax in TypeScript
 module.exports.default = axios;
 
-},{"./cancel/Cancel":5,"./cancel/CancelToken":6,"./cancel/isCancel":7,"./core/Axios":8,"./core/mergeConfig":14,"./defaults":17,"./helpers/bind":18,"./helpers/spread":26,"./utils":27}],5:[function(require,module,exports){
+},{"./cancel/Cancel":4,"./cancel/CancelToken":5,"./cancel/isCancel":6,"./core/Axios":7,"./core/mergeConfig":13,"./defaults":16,"./helpers/bind":17,"./helpers/spread":25,"./utils":26}],4:[function(require,module,exports){
 'use strict';
 
 /**
@@ -384,7 +257,7 @@ Cancel.prototype.__CANCEL__ = true;
 
 module.exports = Cancel;
 
-},{}],6:[function(require,module,exports){
+},{}],5:[function(require,module,exports){
 'use strict';
 
 var Cancel = require('./Cancel');
@@ -443,14 +316,14 @@ CancelToken.source = function source() {
 
 module.exports = CancelToken;
 
-},{"./Cancel":5}],7:[function(require,module,exports){
+},{"./Cancel":4}],6:[function(require,module,exports){
 'use strict';
 
 module.exports = function isCancel(value) {
   return !!(value && value.__CANCEL__);
 };
 
-},{}],8:[function(require,module,exports){
+},{}],7:[function(require,module,exports){
 'use strict';
 
 var utils = require('./../utils');
@@ -547,7 +420,7 @@ utils.forEach(['post', 'put', 'patch'], function forEachMethodWithData(method) {
 
 module.exports = Axios;
 
-},{"../helpers/buildURL":19,"./../utils":27,"./InterceptorManager":9,"./dispatchRequest":12,"./mergeConfig":14}],9:[function(require,module,exports){
+},{"../helpers/buildURL":18,"./../utils":26,"./InterceptorManager":8,"./dispatchRequest":11,"./mergeConfig":13}],8:[function(require,module,exports){
 'use strict';
 
 var utils = require('./../utils');
@@ -601,7 +474,7 @@ InterceptorManager.prototype.forEach = function forEach(fn) {
 
 module.exports = InterceptorManager;
 
-},{"./../utils":27}],10:[function(require,module,exports){
+},{"./../utils":26}],9:[function(require,module,exports){
 'use strict';
 
 var isAbsoluteURL = require('../helpers/isAbsoluteURL');
@@ -623,7 +496,7 @@ module.exports = function buildFullPath(baseURL, requestedURL) {
   return requestedURL;
 };
 
-},{"../helpers/combineURLs":20,"../helpers/isAbsoluteURL":22}],11:[function(require,module,exports){
+},{"../helpers/combineURLs":19,"../helpers/isAbsoluteURL":21}],10:[function(require,module,exports){
 'use strict';
 
 var enhanceError = require('./enhanceError');
@@ -643,7 +516,7 @@ module.exports = function createError(message, config, code, request, response) 
   return enhanceError(error, config, code, request, response);
 };
 
-},{"./enhanceError":13}],12:[function(require,module,exports){
+},{"./enhanceError":12}],11:[function(require,module,exports){
 'use strict';
 
 var utils = require('./../utils');
@@ -724,7 +597,7 @@ module.exports = function dispatchRequest(config) {
   });
 };
 
-},{"../cancel/isCancel":7,"../defaults":17,"./../utils":27,"./transformData":16}],13:[function(require,module,exports){
+},{"../cancel/isCancel":6,"../defaults":16,"./../utils":26,"./transformData":15}],12:[function(require,module,exports){
 'use strict';
 
 /**
@@ -768,7 +641,7 @@ module.exports = function enhanceError(error, config, code, request, response) {
   return error;
 };
 
-},{}],14:[function(require,module,exports){
+},{}],13:[function(require,module,exports){
 'use strict';
 
 var utils = require('../utils');
@@ -857,7 +730,7 @@ module.exports = function mergeConfig(config1, config2) {
   return config;
 };
 
-},{"../utils":27}],15:[function(require,module,exports){
+},{"../utils":26}],14:[function(require,module,exports){
 'use strict';
 
 var createError = require('./createError');
@@ -884,7 +757,7 @@ module.exports = function settle(resolve, reject, response) {
   }
 };
 
-},{"./createError":11}],16:[function(require,module,exports){
+},{"./createError":10}],15:[function(require,module,exports){
 'use strict';
 
 var utils = require('./../utils');
@@ -906,7 +779,7 @@ module.exports = function transformData(data, headers, fns) {
   return data;
 };
 
-},{"./../utils":27}],17:[function(require,module,exports){
+},{"./../utils":26}],16:[function(require,module,exports){
 (function (process){
 'use strict';
 
@@ -1008,7 +881,7 @@ utils.forEach(['post', 'put', 'patch'], function forEachMethodWithData(method) {
 module.exports = defaults;
 
 }).call(this,require("sycGbZ"))
-},{"./adapters/http":3,"./adapters/xhr":3,"./helpers/normalizeHeaderName":24,"./utils":27,"sycGbZ":30}],18:[function(require,module,exports){
+},{"./adapters/http":2,"./adapters/xhr":2,"./helpers/normalizeHeaderName":23,"./utils":26,"sycGbZ":32}],17:[function(require,module,exports){
 'use strict';
 
 module.exports = function bind(fn, thisArg) {
@@ -1021,7 +894,7 @@ module.exports = function bind(fn, thisArg) {
   };
 };
 
-},{}],19:[function(require,module,exports){
+},{}],18:[function(require,module,exports){
 'use strict';
 
 var utils = require('./../utils');
@@ -1093,7 +966,7 @@ module.exports = function buildURL(url, params, paramsSerializer) {
   return url;
 };
 
-},{"./../utils":27}],20:[function(require,module,exports){
+},{"./../utils":26}],19:[function(require,module,exports){
 'use strict';
 
 /**
@@ -1109,7 +982,7 @@ module.exports = function combineURLs(baseURL, relativeURL) {
     : baseURL;
 };
 
-},{}],21:[function(require,module,exports){
+},{}],20:[function(require,module,exports){
 'use strict';
 
 var utils = require('./../utils');
@@ -1164,7 +1037,7 @@ module.exports = (
     })()
 );
 
-},{"./../utils":27}],22:[function(require,module,exports){
+},{"./../utils":26}],21:[function(require,module,exports){
 'use strict';
 
 /**
@@ -1180,7 +1053,7 @@ module.exports = function isAbsoluteURL(url) {
   return /^([a-z][a-z\d\+\-\.]*:)?\/\//i.test(url);
 };
 
-},{}],23:[function(require,module,exports){
+},{}],22:[function(require,module,exports){
 'use strict';
 
 var utils = require('./../utils');
@@ -1250,7 +1123,7 @@ module.exports = (
     })()
 );
 
-},{"./../utils":27}],24:[function(require,module,exports){
+},{"./../utils":26}],23:[function(require,module,exports){
 'use strict';
 
 var utils = require('../utils');
@@ -1264,7 +1137,7 @@ module.exports = function normalizeHeaderName(headers, normalizedName) {
   });
 };
 
-},{"../utils":27}],25:[function(require,module,exports){
+},{"../utils":26}],24:[function(require,module,exports){
 'use strict';
 
 var utils = require('./../utils');
@@ -1319,7 +1192,7 @@ module.exports = function parseHeaders(headers) {
   return parsed;
 };
 
-},{"./../utils":27}],26:[function(require,module,exports){
+},{"./../utils":26}],25:[function(require,module,exports){
 'use strict';
 
 /**
@@ -1348,7 +1221,7 @@ module.exports = function spread(callback) {
   };
 };
 
-},{}],27:[function(require,module,exports){
+},{}],26:[function(require,module,exports){
 'use strict';
 
 var bind = require('./helpers/bind');
@@ -1701,7 +1574,7 @@ module.exports = {
   stripBOM: stripBOM
 };
 
-},{"./helpers/bind":18}],28:[function(require,module,exports){
+},{"./helpers/bind":17}],27:[function(require,module,exports){
 /*!
  * Chart.js v2.9.4
  * https://www.chartjs.org
@@ -17875,7 +17748,7 @@ return src;
 
 })));
 
-},{"moment":29}],29:[function(require,module,exports){
+},{"moment":28}],28:[function(require,module,exports){
 //! moment.js
 //! version : 2.29.1
 //! authors : Tim Wood, Iskren Chernev, Moment.js contributors
@@ -23547,7 +23420,523 @@ return src;
 
 })));
 
-},{}],30:[function(require,module,exports){
+},{}],29:[function(require,module,exports){
+const Chart = require('chart.js')
+const axios = require('axios').default
+const EventEmitter = require('events').EventEmitter
+
+const { PORT } = require('../variables.json')
+
+let chart = null
+
+function initChart () {
+  const canvas = document.querySelector('canvas')
+  const ctx = canvas.getContext('2d')
+  chart = new Chart(ctx, {
+    type: 'line',
+    options: {
+      tooltips: {
+        mode: 'index',
+        intersect: false
+      },
+      hover: {
+        mode: 'nearest',
+        intersect: true
+      }
+    }
+  })
+}
+
+function zeroPad (number) {
+  const padding = number < 10 ? '0' : ''
+  return padding + number
+}
+
+function getOptions (index) {
+  const colors = [[255, 0, 0], [0, 255, 0], [0, 0, 255]]
+
+  const color = colors[index % colors.length]
+
+  return {
+    backgroundColor: `rgba(${color[0]}, ${color[1]}, ${color[2]}, 0.1)`,
+    borderColor: `rgba(${color[0]}, ${color[1]}, ${color[2]}, 0.9)`
+  }
+}
+
+function renderChart (data, render = true) {
+  if (!chart) initChart()
+
+  const time = new Date(data.timestamp)
+  chart.data.labels.push(time.getHours() + ':' + zeroPad(time.getMinutes()) + ':' + zeroPad(time.getSeconds()))
+  const datapoints = massageData(data)
+
+  for (const [label, value] of Object.entries(datapoints)) {
+    // Attempt to find an existing dataset
+    let found = false
+    for (let i = 0; i < chart.data.datasets.length; i++) {
+      const dataset = chart.data.datasets[i]
+      if (dataset.label === label) {
+        found = true
+        dataset.data.push(datapoints[label])
+        break
+      }
+    }
+
+    if (!found) {
+      const opt = Object.assign({}, {
+        label,
+        data: [value],
+        fill: false
+      }, getOptions(chart.data.datasets.length))
+
+      chart.data.datasets.push(opt)
+    }
+  }
+
+  if (render) {
+    chart.update()
+  }
+}
+
+function massageData (data) {
+  if (data.stoker.sensors) {
+    return data.stoker.sensors.reduce((prev, data) => {
+      prev[data.name] = data.tempCurrent
+      return prev
+    }, {})
+  }
+
+  return []
+}
+
+const info = document.createElement('div')
+document.body.appendChild(info)
+
+const state = {
+  data: [],
+  stokerIP: null,
+  errors: []
+}
+
+function render (state) {
+  let output = ''
+  for (const error of state.errors) {
+    output += '<div class="error">' + error + '</div>'
+  }
+
+  output += renderLastest(state)
+  info.innerHTML = output
+}
+
+function renderLastest (state) {
+  const data = state.data
+  const recentData = data[data.length - 1]
+
+  if (!recentData) return ''
+
+  let output = '<table>'
+
+  const time = new Date(recentData.timestamp)
+  output += `<tr><td colspan=2>Last Update ${time.getHours() + ':' + zeroPad(time.getMinutes()) + ':' + zeroPad(time.getSeconds())}</td></tr>`
+  output += '<tr><td colspan=2><b>Sensors</b></td></tr>'
+  if (recentData.stoker.sensors) {
+    for (const temp of recentData.stoker.sensors) {
+      output += `<tr><td>${temp.name}</td><td>${temp.tempCurrent}ºF</td></tr>`
+    }
+  } else {
+    output += '<tr><td colspan="100%">No Sensors Found</td></tr>'
+  }
+
+  output += '<tr><td colspan=2><b>Blowers</b></td></tr>'
+  if (recentData.stoker.blowers) {
+    for (const blower of recentData.stoker.blowers) {
+      output += `<tr><td>${blower.name}</td><td>${(blower.on) ? 'On' : 'Off'}</td></tr>`
+    }
+  } else {
+    output += '<tr><td colspan="100%">No Blowers Found</td></tr>'
+  }
+
+  output += '</table>'
+  return output
+}
+
+const appBus = new EventEmitter()
+
+function initState () {
+  // Stoker IP
+  appBus.once('store:get:stokerIP', (event, ip) => {
+    if (ip) {
+      state.stokerIP = ip
+      render(state)
+    }
+  })
+  appBus.on('stoker:not-found', () => {
+    state.errors = []
+    state.errors.push(`Stoker cannot be found at ${state.stokerIP}`)
+    render(state)
+  })
+
+  // Update state w/ new data
+  appBus.on('data', (data) => {
+    renderChart(data)
+    state.data.push(data)
+    render(state)
+  })
+
+  render(state)
+}
+
+initState()
+
+function setupWS (port, bus) {
+  const ws = new WebSocket('ws://' + (window.location.hostname ? window.location.hostname : 'localhost') + ':' + port)
+  ws.onopen = () => {
+    console.log('ws connected')
+    bus.on('store:get', (field) => {
+      ws.send(JSON.stringify({ event: 'store:get', data: field }))
+    })
+
+    // Now connection is open, get info
+    bus.emit('store:get', 'stokerIP')
+  }
+
+  ws.onmessage = ({ data }) => {
+    data = JSON.parse(data)
+    bus.emit(data.event, data.data)
+  }
+}
+
+function getWSPort () {
+  axios.get(`http://${window.location.hostname ? window.location.hostname : 'localhost'}:${PORT}/ws-port`)
+    .then((response) => {
+      const port = response.data
+      setupWS(port, appBus)
+    })
+}
+
+getWSPort()
+axios.get(`http://${window.location.hostname ? window.location.hostname : 'localhost'}:${PORT}/data`)
+  .then((response) => {
+    const data = response.data
+    for (let i = 0; i < data.length; i++) {
+      const datapoint = data[i]
+      const update = i === data.length - 1
+      renderChart(datapoint, update)
+    }
+  })
+
+},{"../variables.json":30,"axios":1,"chart.js":27,"events":31}],30:[function(require,module,exports){
+module.exports={
+  "WS_PORT": 4001,
+  "PORT": 4000
+}
+
+},{}],31:[function(require,module,exports){
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+function EventEmitter() {
+  this._events = this._events || {};
+  this._maxListeners = this._maxListeners || undefined;
+}
+module.exports = EventEmitter;
+
+// Backwards-compat with node 0.10.x
+EventEmitter.EventEmitter = EventEmitter;
+
+EventEmitter.prototype._events = undefined;
+EventEmitter.prototype._maxListeners = undefined;
+
+// By default EventEmitters will print a warning if more than 10 listeners are
+// added to it. This is a useful default which helps finding memory leaks.
+EventEmitter.defaultMaxListeners = 10;
+
+// Obviously not all Emitters should be limited to 10. This function allows
+// that to be increased. Set to zero for unlimited.
+EventEmitter.prototype.setMaxListeners = function(n) {
+  if (!isNumber(n) || n < 0 || isNaN(n))
+    throw TypeError('n must be a positive number');
+  this._maxListeners = n;
+  return this;
+};
+
+EventEmitter.prototype.emit = function(type) {
+  var er, handler, len, args, i, listeners;
+
+  if (!this._events)
+    this._events = {};
+
+  // If there is no 'error' event listener then throw.
+  if (type === 'error') {
+    if (!this._events.error ||
+        (isObject(this._events.error) && !this._events.error.length)) {
+      er = arguments[1];
+      if (er instanceof Error) {
+        throw er; // Unhandled 'error' event
+      } else {
+        throw TypeError('Uncaught, unspecified "error" event.');
+      }
+      return false;
+    }
+  }
+
+  handler = this._events[type];
+
+  if (isUndefined(handler))
+    return false;
+
+  if (isFunction(handler)) {
+    switch (arguments.length) {
+      // fast cases
+      case 1:
+        handler.call(this);
+        break;
+      case 2:
+        handler.call(this, arguments[1]);
+        break;
+      case 3:
+        handler.call(this, arguments[1], arguments[2]);
+        break;
+      // slower
+      default:
+        len = arguments.length;
+        args = new Array(len - 1);
+        for (i = 1; i < len; i++)
+          args[i - 1] = arguments[i];
+        handler.apply(this, args);
+    }
+  } else if (isObject(handler)) {
+    len = arguments.length;
+    args = new Array(len - 1);
+    for (i = 1; i < len; i++)
+      args[i - 1] = arguments[i];
+
+    listeners = handler.slice();
+    len = listeners.length;
+    for (i = 0; i < len; i++)
+      listeners[i].apply(this, args);
+  }
+
+  return true;
+};
+
+EventEmitter.prototype.addListener = function(type, listener) {
+  var m;
+
+  if (!isFunction(listener))
+    throw TypeError('listener must be a function');
+
+  if (!this._events)
+    this._events = {};
+
+  // To avoid recursion in the case that type === "newListener"! Before
+  // adding it to the listeners, first emit "newListener".
+  if (this._events.newListener)
+    this.emit('newListener', type,
+              isFunction(listener.listener) ?
+              listener.listener : listener);
+
+  if (!this._events[type])
+    // Optimize the case of one listener. Don't need the extra array object.
+    this._events[type] = listener;
+  else if (isObject(this._events[type]))
+    // If we've already got an array, just append.
+    this._events[type].push(listener);
+  else
+    // Adding the second element, need to change to array.
+    this._events[type] = [this._events[type], listener];
+
+  // Check for listener leak
+  if (isObject(this._events[type]) && !this._events[type].warned) {
+    var m;
+    if (!isUndefined(this._maxListeners)) {
+      m = this._maxListeners;
+    } else {
+      m = EventEmitter.defaultMaxListeners;
+    }
+
+    if (m && m > 0 && this._events[type].length > m) {
+      this._events[type].warned = true;
+      console.error('(node) warning: possible EventEmitter memory ' +
+                    'leak detected. %d listeners added. ' +
+                    'Use emitter.setMaxListeners() to increase limit.',
+                    this._events[type].length);
+      if (typeof console.trace === 'function') {
+        // not supported in IE 10
+        console.trace();
+      }
+    }
+  }
+
+  return this;
+};
+
+EventEmitter.prototype.on = EventEmitter.prototype.addListener;
+
+EventEmitter.prototype.once = function(type, listener) {
+  if (!isFunction(listener))
+    throw TypeError('listener must be a function');
+
+  var fired = false;
+
+  function g() {
+    this.removeListener(type, g);
+
+    if (!fired) {
+      fired = true;
+      listener.apply(this, arguments);
+    }
+  }
+
+  g.listener = listener;
+  this.on(type, g);
+
+  return this;
+};
+
+// emits a 'removeListener' event iff the listener was removed
+EventEmitter.prototype.removeListener = function(type, listener) {
+  var list, position, length, i;
+
+  if (!isFunction(listener))
+    throw TypeError('listener must be a function');
+
+  if (!this._events || !this._events[type])
+    return this;
+
+  list = this._events[type];
+  length = list.length;
+  position = -1;
+
+  if (list === listener ||
+      (isFunction(list.listener) && list.listener === listener)) {
+    delete this._events[type];
+    if (this._events.removeListener)
+      this.emit('removeListener', type, listener);
+
+  } else if (isObject(list)) {
+    for (i = length; i-- > 0;) {
+      if (list[i] === listener ||
+          (list[i].listener && list[i].listener === listener)) {
+        position = i;
+        break;
+      }
+    }
+
+    if (position < 0)
+      return this;
+
+    if (list.length === 1) {
+      list.length = 0;
+      delete this._events[type];
+    } else {
+      list.splice(position, 1);
+    }
+
+    if (this._events.removeListener)
+      this.emit('removeListener', type, listener);
+  }
+
+  return this;
+};
+
+EventEmitter.prototype.removeAllListeners = function(type) {
+  var key, listeners;
+
+  if (!this._events)
+    return this;
+
+  // not listening for removeListener, no need to emit
+  if (!this._events.removeListener) {
+    if (arguments.length === 0)
+      this._events = {};
+    else if (this._events[type])
+      delete this._events[type];
+    return this;
+  }
+
+  // emit removeListener for all listeners on all events
+  if (arguments.length === 0) {
+    for (key in this._events) {
+      if (key === 'removeListener') continue;
+      this.removeAllListeners(key);
+    }
+    this.removeAllListeners('removeListener');
+    this._events = {};
+    return this;
+  }
+
+  listeners = this._events[type];
+
+  if (isFunction(listeners)) {
+    this.removeListener(type, listeners);
+  } else {
+    // LIFO order
+    while (listeners.length)
+      this.removeListener(type, listeners[listeners.length - 1]);
+  }
+  delete this._events[type];
+
+  return this;
+};
+
+EventEmitter.prototype.listeners = function(type) {
+  var ret;
+  if (!this._events || !this._events[type])
+    ret = [];
+  else if (isFunction(this._events[type]))
+    ret = [this._events[type]];
+  else
+    ret = this._events[type].slice();
+  return ret;
+};
+
+EventEmitter.listenerCount = function(emitter, type) {
+  var ret;
+  if (!emitter._events || !emitter._events[type])
+    ret = 0;
+  else if (isFunction(emitter._events[type]))
+    ret = 1;
+  else
+    ret = emitter._events[type].length;
+  return ret;
+};
+
+function isFunction(arg) {
+  return typeof arg === 'function';
+}
+
+function isNumber(arg) {
+  return typeof arg === 'number';
+}
+
+function isObject(arg) {
+  return typeof arg === 'object' && arg !== null;
+}
+
+function isUndefined(arg) {
+  return arg === void 0;
+}
+
+},{}],32:[function(require,module,exports){
 // shim for using process in browser
 
 var process = module.exports = {};
@@ -23612,4 +24001,4 @@ process.chdir = function (dir) {
     throw new Error('process.chdir is not supported');
 };
 
-},{}]},{},[1])
+},{}]},{},[29])
