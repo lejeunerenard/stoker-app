@@ -73,7 +73,8 @@ function renderChart (data, render = true) {
       const opt = Object.assign({}, {
         label,
         data: [value],
-        fill: false
+        fill: false,
+        parsing: false
       }, getOptions(chart.data.datasets.length))
 
       chart.data.datasets.push(opt)
@@ -88,7 +89,7 @@ function renderChart (data, render = true) {
 function massageData (data) {
   if (data.stoker.sensors) {
     return data.stoker.sensors.reduce((prev, sensor) => {
-      prev[sensor.name] = { x: (new Date(data.timestamp)).getTime(), y: sensor.tempCurrent }
+      prev[sensor.name] = { x: new Date(data.timestamp), y: sensor.tempCurrent }
       return prev
     }, {})
   }
