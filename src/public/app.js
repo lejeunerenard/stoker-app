@@ -239,9 +239,10 @@ getWSPort()
 function getSession (id) {
   if (id === undefined) throw Error('no id provided to getSession()')
 
+  clearChart()
+
   axios.get(`http://${window.location.hostname ? window.location.hostname : 'localhost'}:${PORT}/data/${id}`)
     .then((response) => {
-      clearChart()
       const session = response.data
       const data = session.data
       for (let i = 0; i < data.length; i++) {
