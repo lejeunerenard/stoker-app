@@ -23463,6 +23463,14 @@ function getOptions (index) {
   }
 }
 
+function clearChart () {
+  if (!chart) return
+
+  chart.data.labels = []
+  chart.data.datasets = []
+  chart.update()
+}
+
 function renderChart (data, render = true) {
   if (!chart) initChart()
 
@@ -23515,7 +23523,9 @@ document.body.appendChild(info)
 const state = {
   data: [],
   stokerIP: null,
-  errors: []
+  errors: [],
+  sessions: [],
+  sessionID: null
 }
 
 function render (state) {
@@ -23523,6 +23533,17 @@ function render (state) {
   for (const error of state.errors) {
     output += '<div class="error">' + error + '</div>'
   }
+
+  // Sessions
+  output += `<div class="session-manager">
+    <label for="session">Session</label>
+    <select id="session">`
+  for (let i = 0; i < state.sessions.length; i++) {
+    const session = state.sessions[i]
+    output += `<option value="${i}"${i === state.sessionID ? ' selected' : ''}>${session.name}</option>`
+  }
+  output += `</select>
+    </div>`
 
   output += renderLastest(state)
   info.innerHTML = output
@@ -23583,10 +23604,31 @@ function initState () {
     render(state)
   })
 
+  getSessions().then(() => {
+    state.sessionID = state.sessions.length - 1
+    render(state)
+    getSession('current')
+  })
+
   render(state)
 }
 
 initState()
+
+function onChangeSession (e) {
+  e.preventDefault()
+
+  const id = Number(e.target.value)
+  state.sessionID = id
+
+  getSession(id)
+}
+
+document.body.addEventListener('change', (e) => {
+  if (e.target.id !== 'session') return
+
+  onChangeSession(e)
+})
 
 function setupWS (port, bus) {
   const ws = new WebSocket('ws://' + (window.location.hostname ? window.location.hostname : 'localhost') + ':' + port)
@@ -23615,15 +23657,28 @@ function getWSPort () {
 }
 
 getWSPort()
-axios.get(`http://${window.location.hostname ? window.location.hostname : 'localhost'}:${PORT}/data`)
-  .then((response) => {
-    const data = response.data
-    for (let i = 0; i < data.length; i++) {
-      const datapoint = data[i]
-      const update = i === data.length - 1
-      renderChart(datapoint, update)
-    }
-  })
+function getSession (id) {
+  if (id === undefined) throw Error('no id provided to getSession()')
+
+  axios.get(`http://${window.location.hostname ? window.location.hostname : 'localhost'}:${PORT}/data/${id}`)
+    .then((response) => {
+      clearChart()
+      const session = response.data
+      const data = session.data
+      for (let i = 0; i < data.length; i++) {
+        const datapoint = data[i]
+        const update = i === data.length - 1
+        renderChart(datapoint, update)
+      }
+    })
+}
+
+function getSessions () {
+  return axios.get(`http://${window.location.hostname ? window.location.hostname : 'localhost'}:${PORT}/sessions`)
+    .then((response) => {
+      state.sessions = response.data
+    })
+}
 
 },{"../variables.json":30,"axios":1,"chart.js":27,"events":31}],30:[function(require,module,exports){
 module.exports={
