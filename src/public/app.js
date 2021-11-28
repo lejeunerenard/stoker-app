@@ -19,6 +19,11 @@ function initChart () {
       hover: {
         mode: 'nearest',
         intersect: true
+      },
+      scales: {
+        xAxes: [{
+          type: 'time'
+        }]
       }
     }
   })
@@ -43,7 +48,6 @@ function getOptions (index) {
 function clearChart () {
   if (!chart) return
 
-  chart.data.labels = []
   chart.data.datasets = []
   chart.update()
 }
@@ -51,8 +55,6 @@ function clearChart () {
 function renderChart (data, render = true) {
   if (!chart) initChart()
 
-  const time = new Date(data.timestamp)
-  chart.data.labels.push(time.getHours() + ':' + zeroPad(time.getMinutes()) + ':' + zeroPad(time.getSeconds()))
   const datapoints = massageData(data)
 
   for (const [label, value] of Object.entries(datapoints)) {
@@ -85,8 +87,8 @@ function renderChart (data, render = true) {
 
 function massageData (data) {
   if (data.stoker.sensors) {
-    return data.stoker.sensors.reduce((prev, data) => {
-      prev[data.name] = data.tempCurrent
+    return data.stoker.sensors.reduce((prev, sensor) => {
+      prev[sensor.name] = { x: (new Date(data.timestamp)).getTime(), y: sensor.tempCurrent }
       return prev
     }, {})
   }
