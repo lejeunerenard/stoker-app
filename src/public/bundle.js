@@ -23442,6 +23442,11 @@ function initChart () {
       hover: {
         mode: 'nearest',
         intersect: true
+      },
+      scales: {
+        xAxes: [{
+          type: 'time'
+        }]
       }
     }
   })
@@ -23466,7 +23471,6 @@ function getOptions (index) {
 function clearChart () {
   if (!chart) return
 
-  chart.data.labels = []
   chart.data.datasets = []
   chart.update()
 }
@@ -23474,8 +23478,6 @@ function clearChart () {
 function renderChart (data, render = true) {
   if (!chart) initChart()
 
-  const time = new Date(data.timestamp)
-  chart.data.labels.push(time.getHours() + ':' + zeroPad(time.getMinutes()) + ':' + zeroPad(time.getSeconds()))
   const datapoints = massageData(data)
 
   for (const [label, value] of Object.entries(datapoints)) {
@@ -23494,7 +23496,8 @@ function renderChart (data, render = true) {
       const opt = Object.assign({}, {
         label,
         data: [value],
-        fill: false
+        fill: false,
+        parsing: false
       }, getOptions(chart.data.datasets.length))
 
       chart.data.datasets.push(opt)
@@ -23508,8 +23511,8 @@ function renderChart (data, render = true) {
 
 function massageData (data) {
   if (data.stoker.sensors) {
-    return data.stoker.sensors.reduce((prev, data) => {
-      prev[data.name] = data.tempCurrent
+    return data.stoker.sensors.reduce((prev, sensor) => {
+      prev[sensor.name] = { x: new Date(data.timestamp), y: sensor.tempCurrent }
       return prev
     }, {})
   }
@@ -23660,9 +23663,10 @@ getWSPort()
 function getSession (id) {
   if (id === undefined) throw Error('no id provided to getSession()')
 
+  clearChart()
+
   axios.get(`http://${window.location.hostname ? window.location.hostname : 'localhost'}:${PORT}/data/${id}`)
     .then((response) => {
-      clearChart()
       const session = response.data
       const data = session.data
       for (let i = 0; i < data.length; i++) {
