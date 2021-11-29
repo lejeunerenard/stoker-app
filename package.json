@@ -31,6 +31,8 @@
   "dependencies": {
     "axios": "^0.21.0",
     "chart.js": "^2.9.4",
+    "choo": "^7.1.0",
+    "choo-devtools": "^3.0.4",
     "electron-squirrel-startup": "^1.0.0",
     "electron-store": "^6.0.1",
     "express": "^4.17.1",

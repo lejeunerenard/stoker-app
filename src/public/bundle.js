@@ -881,7 +881,7 @@ utils.forEach(['post', 'put', 'patch'], function forEachMethodWithData(method) {
 module.exports = defaults;
 
 }).call(this,require("sycGbZ"))
-},{"./adapters/http":2,"./adapters/xhr":2,"./helpers/normalizeHeaderName":23,"./utils":26,"sycGbZ":32}],17:[function(require,module,exports){
+},{"./adapters/http":2,"./adapters/xhr":2,"./helpers/normalizeHeaderName":23,"./utils":26,"sycGbZ":92}],17:[function(require,module,exports){
 'use strict';
 
 module.exports = function bind(fn, thisArg) {
@@ -17748,7 +17748,1869 @@ return src;
 
 })));
 
-},{"moment":28}],28:[function(require,module,exports){
+},{"moment":47}],28:[function(require,module,exports){
+var EventEmitter = require('events').EventEmitter
+
+var storage = require('./lib/storage')
+var logger = require('./lib/logger')
+var debug = require('./lib/debug')
+var copy = require('./lib/copy')
+var help = require('./lib/help')
+var perf = require('./lib/perf')
+var log = require('./lib/log')
+var getAllRoutes = require('wayfarer/get-all-routes')
+
+module.exports = expose
+
+function expose (opts) {
+  opts = opts || {}
+  store.storeName = 'choo-devtools'
+  return store
+  function store (state, emitter, app) {
+    var localEmitter = new EventEmitter()
+
+    if (typeof window !== 'undefined') {
+      logger(state, emitter, opts)
+    }
+
+    emitter.on('DOMContentLoaded', function () {
+      if (typeof window === 'undefined') return
+      window.choo = {}
+
+      window.choo.state = state
+      window.choo.emit = function () {
+        emitter.emit.apply(emitter, arguments)
+      }
+      window.choo.on = function (eventName, listener) {
+        emitter.on(eventName, listener)
+      }
+
+      debug(state, emitter, app, localEmitter)
+
+      log(state, emitter, app, localEmitter)
+      perf(state, emitter, app, localEmitter)
+      window.choo.copy = copy
+      if (app.router && app.router.router) {
+        window.choo.routes = Object.keys(getAllRoutes(app.router.router))
+      }
+
+      storage()
+      help()
+    })
+  }
+}
+
+},{"./lib/copy":29,"./lib/debug":30,"./lib/help":31,"./lib/log":32,"./lib/logger":33,"./lib/perf":34,"./lib/storage":35,"events":90,"wayfarer/get-all-routes":74}],29:[function(require,module,exports){
+var stateCopy = require('state-copy')
+var pluck = require('plucker')
+
+module.exports = copy
+
+function copy (state) {
+  var isStateString = state && typeof state === 'string'
+  var isChooPath = isStateString && arguments.length === 1 && state.indexOf('state.') === 0
+
+  if (!state || typeof state === 'function') state = window.choo.state
+  if (isChooPath) [].push.call(arguments, { state: window.choo.state })
+
+  stateCopy(isStateString ? pluck.apply(this, arguments) : state)
+}
+
+},{"plucker":69,"state-copy":73}],30:[function(require,module,exports){
+/* eslint-disable node/no-deprecated-api */
+var onChange = require('object-change-callsite')
+var nanologger = require('nanologger')
+var assert = require('assert')
+
+var enabledMessage = 'Debugging enabled. To disable run: `choo.debug = false`'
+var disabledMessage = 'Debugging disabled. We hope it was helpful! 🙌'
+
+module.exports = debug
+
+function debug (state, emitter, app, localEmitter) {
+  var log = nanologger('choo-devtools')
+  var enabled = window.localStorage.logLevel === 'debug'
+  if (enabled) log.info(enabledMessage)
+
+  state = onChange(state, function (attr, value, callsite) {
+    if (!enabled) return
+    callsite = callsite.split('\n')[1].replace(/^ +/, '')
+    log.info('state.' + attr, value, '\n' + callsite)
+  })
+
+  app.state = state
+
+  Object.defineProperty(window.choo, 'debug', {
+    get: function () {
+      window.localStorage.logLevel = 'debug'
+      localEmitter.emit('debug', true)
+      enabled = true
+      return enabledMessage
+    },
+    set: function (bool) {
+      assert.equal(typeof bool, 'boolean', 'choo-devtools.debug: bool should be type boolean')
+      window.localStorage.logLevel = bool ? 'debug' : 'info'
+      enabled = bool
+      localEmitter.emit('debug', enabled)
+      if (enabled) log.info(enabledMessage)
+      else log.info(disabledMessage)
+    }
+  })
+}
+
+},{"assert":84,"nanologger":57,"object-change-callsite":67}],31:[function(require,module,exports){
+module.exports = help
+
+function help () {
+  Object.defineProperty(window.choo, 'help', {
+    get: get,
+    set: noop
+  })
+
+  function get () {
+    setTimeout(function () {
+      print('copy', 'Serialize the current state to the clipboard.')
+      print('debug', 'Enable Choo debug mode.')
+      print('emit', 'Emit an event in the Choo emitter.')
+      print('help', 'Print usage information.')
+      print('log', 'Print the last 150 events emitted.')
+      print('on', 'Listen for an event in the Choo emitter.')
+      print('once', 'Listen for an event once in the Choo emitter.')
+      print('perf', 'Print out performance metrics')
+      print('state', 'Print the Choo state object.')
+      print('storage', 'Print browser storage information.')
+    }, 0)
+    return 'Choo command overview'
+  }
+}
+
+function print (cmd, desc) {
+  var color = '#cc99cc'
+  console.log('  %cchoo.' + cmd, 'color: ' + color, '— ' + desc)
+}
+
+function noop () {}
+
+},{}],32:[function(require,module,exports){
+var removeItems = require('remove-array-items')
+var scheduler = require('nanoscheduler')()
+var nanologger = require('nanologger')
+var _log = nanologger('choo')
+var clone = require('clone')
+
+var MAX_HISTORY_LENGTH = 150 // How many items we should keep around
+
+module.exports = log
+
+function log (state, emitter, app, localEmitter) {
+  var shouldDebug = window.localStorage.logLevel === 'debug'
+  var history = []
+  var i = 0
+  var shouldWarn = true
+
+  localEmitter.on('debug', function (bool) {
+    shouldDebug = bool
+  })
+
+  window.choo._history = history
+  window.choo.history = showHistory
+
+  Object.defineProperty(window.choo, 'log', { get: showHistory, set: noop })
+  Object.defineProperty(window.choo, 'history', { get: showHistory, set: noop })
+
+  emitter.on('*', function (name, data) {
+    i += 1
+    var entry = new Event(name, data, state)
+    history.push(entry)
+    scheduler.push(function () {
+      var length = history.length
+      if (length > MAX_HISTORY_LENGTH) {
+        removeItems(history, 0, length - MAX_HISTORY_LENGTH)
+      }
+    })
+  })
+
+  function showHistory () {
+    setTimeout(function () {
+      console.table(history)
+    }, 0)
+    var events = i === 1 ? 'event' : 'events'
+    var msg = i + ' ' + events + ' recorded, showing the last ' + MAX_HISTORY_LENGTH + '.'
+    if (shouldDebug === false) {
+      msg += ' Enable state capture by calling `choo.debug`.'
+    } else {
+      msg += ' Disable state capture by calling `choo.debug = false`.'
+    }
+    return msg
+  }
+
+  function Event (name, data, state) {
+    this.name = name
+    this.data = data === undefined ? '<no data>' : data
+    this.state = shouldDebug
+      ? tryClone(state)
+      : '<disabled>'
+  }
+
+  function tryClone (state) {
+    try {
+      var _state = clone(state)
+      if (!shouldWarn) shouldWarn = true
+      return _state
+    } catch (ex) {
+      if (shouldWarn) {
+        _log.warn('Could not clone your app state. Make sure to have a serializable state so it can be cloned')
+        shouldWarn = false
+      }
+      return '<unserializable>'
+    }
+  }
+}
+
+function noop () {}
+
+},{"clone":36,"nanologger":57,"nanoscheduler":65,"remove-array-items":37}],33:[function(require,module,exports){
+var scheduler = require('nanoscheduler')()
+var nanologger = require('nanologger')
+var Hooks = require('choo-hooks')
+
+module.exports = logger
+
+function logger (state, emitter, opts) {
+  var initialRender = true
+  var hooks = Hooks(emitter)
+  var log = nanologger('choo')
+
+  hooks.on('log:debug', logger('debug'))
+  hooks.on('log:info', logger('info'))
+  hooks.on('log:warn', logger('warn'))
+  hooks.on('log:error', logger('error'))
+  hooks.on('log:fatal', logger('fatal'))
+
+  hooks.on('event', function (eventName, data, timing) {
+    if (opts.filter && !opts.filter(eventName, data, timing)) return
+
+    if (timing) {
+      var duration = timing.duration.toFixed()
+      var level = duration < 50 ? 'info' : 'warn'
+      if (data !== undefined) logger(level)(eventName, data, duration + 'ms')
+      else logger(level)(eventName, duration + 'ms')
+    } else {
+      if (data !== undefined) logger('info')(eventName, data)
+      else logger('info')(eventName)
+    }
+  })
+
+  hooks.on('unhandled', function (eventName, data) {
+    logger('error')('No listeners for ' + eventName)
+  })
+
+  hooks.on('DOMContentLoaded', function (timing) {
+    if (!timing) return logger('info')('DOMContentLoaded')
+    var level = timing.interactive < 1000 ? 'info' : 'warn'
+    logger(level)('DOMContentLoaded', timing.interactive + 'ms to interactive')
+  })
+
+  hooks.on('render', function (timings) {
+    if (!timings || !timings.render) return logger('info')('render')
+    var duration = timings.render.duration.toFixed()
+    var msg = 'render'
+
+    if (initialRender) {
+      initialRender = false
+      msg = 'initial ' + msg
+    }
+
+    // each frame has 10ms available for userland stuff
+    var fps = Math.min((600 / duration).toFixed(), 60)
+
+    if (fps === 60) {
+      logger('info')(msg, fps + 'fps', duration + 'ms')
+    } else {
+      var times = {
+        render: timings.render.duration.toFixed() + 'ms'
+      }
+      if (timings.morph) times.morph = timings.morph.duration.toFixed() + 'ms'
+      logger('warn')(msg, fps + 'fps', duration + 'ms', times)
+    }
+  })
+
+  hooks.on('resource-timing-buffer-full', function () {
+    logger('error')("The browser's Resource Resource timing buffer is full. Cannot store any more timing information")
+  })
+
+  hooks.start()
+
+  function logger (level) {
+    return function () {
+      var args = []
+      for (var i = 0, len = arguments.length; i < len; i++) {
+        args.push(arguments[i])
+      }
+      scheduler.push(function () {
+        log[level].apply(log, args)
+      })
+    }
+  }
+}
+
+},{"choo-hooks":38,"nanologger":57,"nanoscheduler":65}],34:[function(require,module,exports){
+var onPerformance = require('on-performance')
+
+var BAR = '█'
+
+module.exports = perf
+
+function perf (state, emitter, app, localEmitter) {
+  var stats = {}
+
+  window.choo.perf = {}
+
+  // Print all events
+  var all = new Perf(stats, 'all')
+  Object.defineProperty(window.choo.perf, 'all', {
+    get: all.get.bind(all),
+    set: noop
+  })
+
+  // Print only Choo core events
+  var core = new Perf(stats, 'core', function (name) {
+    return /^choo/.test(name)
+  })
+  Object.defineProperty(window.choo.perf, 'core', {
+    get: core.get.bind(core),
+    set: noop
+  })
+
+  // Print component data
+  var components = new Perf(stats, 'components', function (name) {
+    return !/^choo/.test(name) && !/^bankai/.test(name)
+  })
+  Object.defineProperty(window.choo.perf, 'components', {
+    get: components.get.bind(components),
+    set: noop
+  })
+
+  // Print choo userland events (event emitter)
+  var events = new Perf(stats, 'events', function (name) {
+    return /^choo\.emit/.test(name)
+  }, function (name) {
+    return name.replace(/^choo\.emit\('/, '').replace(/'\)$/, '')
+  })
+  Object.defineProperty(window.choo.perf, 'events', {
+    get: events.get.bind(events),
+    set: noop
+  })
+
+  onPerformance(function (entry) {
+    if (entry.entryType !== 'measure') return
+    var name = entry.name.replace(/ .*$/, '')
+
+    if (!stats[name]) {
+      stats[name] = {
+        name: name,
+        count: 0,
+        entries: []
+      }
+    }
+
+    var stat = stats[name]
+    stat.count += 1
+    stat.entries.push(entry.duration)
+  })
+}
+
+// Create a new Perf instance by passing it a filter
+function Perf (stats, name, filter, rename) {
+  this.stats = stats
+  this.name = name
+  this.filter = filter || function () { return true }
+  this.rename = rename || function (name) { return name }
+}
+
+// Compute a table of performance entries based on a filter
+Perf.prototype.get = function () {
+  var filtered = Object.keys(this.stats).filter(this.filter)
+  var self = this
+
+  var maxTime = 0
+  var maxMedian = 0
+  var fmt = filtered.map(function (key) {
+    var stat = self.stats[key]
+    var totalTime = Number(stat.entries.reduce(function (time, entry) {
+      return time + entry
+    }, 0).toFixed(2))
+    if (totalTime > maxTime) maxTime = totalTime
+
+    var median = getMedian(stat.entries)
+    if (median > maxMedian) maxMedian = median
+
+    var name = self.rename(stat.name)
+    return new PerfEntry(name, totalTime, median, stat.count)
+  })
+
+  var barLength = 10
+  fmt.forEach(function (entry) {
+    var totalTime = entry['Total Time (ms)']
+    var median = entry['Median (ms)']
+    entry[' '] = createBar(totalTime / maxTime * 100 / barLength)
+    entry['  '] = createBar(median / maxMedian * 100 / barLength)
+  })
+
+  function createBar (len) {
+    var str = ''
+    for (var i = 0, max = Math.round(len); i < max; i++) {
+      str += BAR
+    }
+    return str
+  }
+
+  var res = fmt.sort(function (a, b) {
+    return b['Total Time (ms)'] - a['Total Time (ms)']
+  })
+  console.table(res)
+  return "Showing performance events for '" + this.name + "'"
+}
+
+// An entry for the performance timeline.
+function PerfEntry (name, totalTime, median, count) {
+  this.Name = name
+  this['Total Time (ms)'] = totalTime
+  this[' '] = 0
+  this['Median (ms)'] = median
+  this['  '] = 0
+  this['Total Count'] = count
+}
+
+// Get the median from an array of numbers.
+function getMedian (args) {
+  if (!args.length) return 0
+  var numbers = args.slice(0).sort(function (a, b) { return a - b })
+  var middle = Math.floor(numbers.length / 2)
+  var isEven = numbers.length % 2 === 0
+  var res = isEven ? (numbers[middle] + numbers[middle - 1]) / 2 : numbers[middle]
+  return Number(res.toFixed(2))
+}
+
+// Do nothing.
+function noop () {}
+
+},{"on-performance":68}],35:[function(require,module,exports){
+var pretty = require('prettier-bytes')
+
+module.exports = storage
+
+function storage () {
+  Object.defineProperty(window.choo, 'storage', {
+    get: get,
+    set: noop
+  })
+
+  function get () {
+    if (navigator.storage) {
+      navigator.storage.estimate().then(function (estimate) {
+        var value = (estimate.usage / estimate.quota).toFixed()
+        clr('Max storage:', fmt(estimate.quota))
+        clr('Storage used:', fmt(estimate.usage) + ' (' + value + '%)')
+        navigator.storage.persisted().then(function (bool) {
+          var val = bool ? 'enabled' : 'disabled'
+          clr('Persistent storage:', val)
+        })
+      })
+      return 'Calculating storage quota…'
+    } else {
+      var protocol = window.location.protocol
+      return (/https/.test(protocol))
+        ? "The Storage API is unavailable in this browser. We're sorry!"
+        : 'The Storage API is unavailable. Serving this site over HTTPS might help enable it!'
+    }
+  }
+}
+
+function clr (msg, arg) {
+  var color = '#cc99cc'
+  console.log('%c' + msg, 'color: ' + color, arg)
+}
+
+function fmt (num) {
+  return pretty(num).replace(' ', '')
+}
+
+function noop () {}
+
+},{"prettier-bytes":70}],36:[function(require,module,exports){
+(function (Buffer){
+var clone = (function() {
+'use strict';
+
+function _instanceof(obj, type) {
+  return type != null && obj instanceof type;
+}
+
+var nativeMap;
+try {
+  nativeMap = Map;
+} catch(_) {
+  // maybe a reference error because no `Map`. Give it a dummy value that no
+  // value will ever be an instanceof.
+  nativeMap = function() {};
+}
+
+var nativeSet;
+try {
+  nativeSet = Set;
+} catch(_) {
+  nativeSet = function() {};
+}
+
+var nativePromise;
+try {
+  nativePromise = Promise;
+} catch(_) {
+  nativePromise = function() {};
+}
+
+/**
+ * Clones (copies) an Object using deep copying.
+ *
+ * This function supports circular references by default, but if you are certain
+ * there are no circular references in your object, you can save some CPU time
+ * by calling clone(obj, false).
+ *
+ * Caution: if `circular` is false and `parent` contains circular references,
+ * your program may enter an infinite loop and crash.
+ *
+ * @param `parent` - the object to be cloned
+ * @param `circular` - set to true if the object to be cloned may contain
+ *    circular references. (optional - true by default)
+ * @param `depth` - set to a number if the object is only to be cloned to
+ *    a particular depth. (optional - defaults to Infinity)
+ * @param `prototype` - sets the prototype to be used when cloning an object.
+ *    (optional - defaults to parent prototype).
+ * @param `includeNonEnumerable` - set to true if the non-enumerable properties
+ *    should be cloned as well. Non-enumerable properties on the prototype
+ *    chain will be ignored. (optional - false by default)
+*/
+function clone(parent, circular, depth, prototype, includeNonEnumerable) {
+  if (typeof circular === 'object') {
+    depth = circular.depth;
+    prototype = circular.prototype;
+    includeNonEnumerable = circular.includeNonEnumerable;
+    circular = circular.circular;
+  }
+  // maintain two arrays for circular references, where corresponding parents
+  // and children have the same index
+  var allParents = [];
+  var allChildren = [];
+
+  var useBuffer = typeof Buffer != 'undefined';
+
+  if (typeof circular == 'undefined')
+    circular = true;
+
+  if (typeof depth == 'undefined')
+    depth = Infinity;
+
+  // recurse this function so we don't reset allParents and allChildren
+  function _clone(parent, depth) {
+    // cloning null always returns null
+    if (parent === null)
+      return null;
+
+    if (depth === 0)
+      return parent;
+
+    var child;
+    var proto;
+    if (typeof parent != 'object') {
+      return parent;
+    }
+
+    if (_instanceof(parent, nativeMap)) {
+      child = new nativeMap();
+    } else if (_instanceof(parent, nativeSet)) {
+      child = new nativeSet();
+    } else if (_instanceof(parent, nativePromise)) {
+      child = new nativePromise(function (resolve, reject) {
+        parent.then(function(value) {
+          resolve(_clone(value, depth - 1));
+        }, function(err) {
+          reject(_clone(err, depth - 1));
+        });
+      });
+    } else if (clone.__isArray(parent)) {
+      child = [];
+    } else if (clone.__isRegExp(parent)) {
+      child = new RegExp(parent.source, __getRegExpFlags(parent));
+      if (parent.lastIndex) child.lastIndex = parent.lastIndex;
+    } else if (clone.__isDate(parent)) {
+      child = new Date(parent.getTime());
+    } else if (useBuffer && Buffer.isBuffer(parent)) {
+      if (Buffer.allocUnsafe) {
+        // Node.js >= 4.5.0
+        child = Buffer.allocUnsafe(parent.length);
+      } else {
+        // Older Node.js versions
+        child = new Buffer(parent.length);
+      }
+      parent.copy(child);
+      return child;
+    } else if (_instanceof(parent, Error)) {
+      child = Object.create(parent);
+    } else {
+      if (typeof prototype == 'undefined') {
+        proto = Object.getPrototypeOf(parent);
+        child = Object.create(proto);
+      }
+      else {
+        child = Object.create(prototype);
+        proto = prototype;
+      }
+    }
+
+    if (circular) {
+      var index = allParents.indexOf(parent);
+
+      if (index != -1) {
+        return allChildren[index];
+      }
+      allParents.push(parent);
+      allChildren.push(child);
+    }
+
+    if (_instanceof(parent, nativeMap)) {
+      parent.forEach(function(value, key) {
+        var keyChild = _clone(key, depth - 1);
+        var valueChild = _clone(value, depth - 1);
+        child.set(keyChild, valueChild);
+      });
+    }
+    if (_instanceof(parent, nativeSet)) {
+      parent.forEach(function(value) {
+        var entryChild = _clone(value, depth - 1);
+        child.add(entryChild);
+      });
+    }
+
+    for (var i in parent) {
+      var attrs;
+      if (proto) {
+        attrs = Object.getOwnPropertyDescriptor(proto, i);
+      }
+
+      if (attrs && attrs.set == null) {
+        continue;
+      }
+      child[i] = _clone(parent[i], depth - 1);
+    }
+
+    if (Object.getOwnPropertySymbols) {
+      var symbols = Object.getOwnPropertySymbols(parent);
+      for (var i = 0; i < symbols.length; i++) {
+        // Don't need to worry about cloning a symbol because it is a primitive,
+        // like a number or string.
+        var symbol = symbols[i];
+        var descriptor = Object.getOwnPropertyDescriptor(parent, symbol);
+        if (descriptor && !descriptor.enumerable && !includeNonEnumerable) {
+          continue;
+        }
+        child[symbol] = _clone(parent[symbol], depth - 1);
+        if (!descriptor.enumerable) {
+          Object.defineProperty(child, symbol, {
+            enumerable: false
+          });
+        }
+      }
+    }
+
+    if (includeNonEnumerable) {
+      var allPropertyNames = Object.getOwnPropertyNames(parent);
+      for (var i = 0; i < allPropertyNames.length; i++) {
+        var propertyName = allPropertyNames[i];
+        var descriptor = Object.getOwnPropertyDescriptor(parent, propertyName);
+        if (descriptor && descriptor.enumerable) {
+          continue;
+        }
+        child[propertyName] = _clone(parent[propertyName], depth - 1);
+        Object.defineProperty(child, propertyName, {
+          enumerable: false
+        });
+      }
+    }
+
+    return child;
+  }
+
+  return _clone(parent, depth);
+}
+
+/**
+ * Simple flat clone using prototype, accepts only objects, usefull for property
+ * override on FLAT configuration object (no nested props).
+ *
+ * USE WITH CAUTION! This may not behave as you wish if you do not know how this
+ * works.
+ */
+clone.clonePrototype = function clonePrototype(parent) {
+  if (parent === null)
+    return null;
+
+  var c = function () {};
+  c.prototype = parent;
+  return new c();
+};
+
+// private utility functions
+
+function __objToStr(o) {
+  return Object.prototype.toString.call(o);
+}
+clone.__objToStr = __objToStr;
+
+function __isDate(o) {
+  return typeof o === 'object' && __objToStr(o) === '[object Date]';
+}
+clone.__isDate = __isDate;
+
+function __isArray(o) {
+  return typeof o === 'object' && __objToStr(o) === '[object Array]';
+}
+clone.__isArray = __isArray;
+
+function __isRegExp(o) {
+  return typeof o === 'object' && __objToStr(o) === '[object RegExp]';
+}
+clone.__isRegExp = __isRegExp;
+
+function __getRegExpFlags(re) {
+  var flags = '';
+  if (re.global) flags += 'g';
+  if (re.ignoreCase) flags += 'i';
+  if (re.multiline) flags += 'm';
+  return flags;
+}
+clone.__getRegExpFlags = __getRegExpFlags;
+
+return clone;
+})();
+
+if (typeof module === 'object' && module.exports) {
+  module.exports = clone;
+}
+
+}).call(this,require("buffer").Buffer)
+},{"buffer":87}],37:[function(require,module,exports){
+'use strict';
+
+/**
+ * Remove a range of items from an array
+ *
+ * @function removeItems
+ * @param {Array<*>} arr The target array
+ * @param {number} startIdx The index to begin removing from (inclusive)
+ * @param {number} removeCount How many items to remove
+ */
+function removeItems (arr, startIdx, removeCount) {
+  var i, length = arr.length;
+
+  if (startIdx >= length || removeCount <= 0 || startIdx < 0) {
+    return
+  }
+
+  removeCount = (startIdx + removeCount > length ? length - startIdx : removeCount);
+
+  var len = length - removeCount;
+
+  for (i = startIdx; i < len; ++i) {
+    arr[i] = arr[i + removeCount];
+  }
+
+  arr.length = len;
+}
+
+module.exports = removeItems;
+
+},{}],38:[function(require,module,exports){
+var onPerformance = require('on-performance')
+var scheduler = require('nanoscheduler')()
+var assert = require('assert')
+
+module.exports = ChooHooks
+
+function ChooHooks (emitter) {
+  if (!(this instanceof ChooHooks)) return new ChooHooks(emitter)
+
+  assert.equal(typeof emitter, 'object')
+
+  this.hasWindow = typeof window !== 'undefined'
+  this.hasIdleCallback = this.hasWindow && window.requestIdleCallback
+  this.hasPerformance = this.hasWindow &&
+    window.performance &&
+    window.performance.getEntriesByName
+
+  this.emitter = emitter
+  this.listeners = {}
+  this.buffer = {
+    render: {},
+    events: {}
+  }
+}
+
+ChooHooks.prototype.on = function (name, handler) {
+  this.listeners[name] = handler
+}
+
+ChooHooks.prototype.start = function () {
+  var self = this
+  if (this.hasPerformance) {
+    window.performance.onresourcetimingbufferfull = function () {
+      var listener = self.listeners['resource-timing-buffer-full']
+      if (listener) listener()
+    }
+  }
+
+  // TODO also handle log events
+  onPerformance(function (timing) {
+    if (!timing) return
+    if (timing.entryType !== 'measure') return
+
+    var eventName = timing.name
+    if (/choo\.morph/.test(eventName)) {
+      self.buffer.render.morph = timing
+    } else if (/choo\.route/.test(eventName)) {
+      self.buffer.render.route = timing
+    } else if (/choo\.render/.test(eventName)) {
+      self.buffer.render.render = timing
+    } else if (/choo\.emit/.test(eventName) && !/log:/.test(eventName)) {
+      var eventListener = self.listeners['event']
+      if (eventListener) {
+        var timingName = eventName.match(/choo\.emit\('(.*)'\)/)[1]
+        if (timingName === 'render' || timingName === 'DOMContentLoaded') return
+
+        var traceId = eventName.match(/\[(\d+)\]/)[1]
+        var data = self.buffer.events[traceId]
+
+        self.buffer.events[traceId] = null
+        eventListener(timingName, data, timing)
+      }
+    }
+
+    var rBuf = self.buffer.render
+    if (rBuf.render && rBuf.route && rBuf.morph) {
+      var renderListener = self.listeners['render']
+      if (!renderListener) return
+      var timings = {}
+      while (self.buffer.render.length) {
+        var _timing = self.buffer.render.pop()
+        var name = _timing.name
+        if (/choo\.render/.test(name)) timings.render = _timing
+        else if (/choo\.morph/.test(name)) timings.morph = _timing
+        else timings.route = _timing
+      }
+      rBuf.render = rBuf.route = rBuf.morph = void 0
+      renderListener(timings)
+    }
+  })
+
+  // Check if there's timings without any listeners
+  // and trigger the DOMContentLoaded event.
+  // If the timing API is not available, we handle all events here
+  this.emitter.on('*', function (eventName, data, uuid) {
+    var logLevel = /^log:(\w{4,5})/.exec(eventName)
+
+    if (!self.hasPerformance && eventName === 'render') {
+      // Render
+      var renderListener = self.listeners['render']
+      if (renderListener) renderListener()
+    } else if (eventName === 'DOMContentLoaded') {
+      // DOMContentLoaded
+      self._emitLoaded()
+    } else if (logLevel) {
+      logLevel = logLevel[1]
+      // Log:*
+      var logListener = self.listeners['log:' + logLevel]
+      if (logListener) {
+        logListener.apply(null, Array.prototype.slice.call(arguments, 0, arguments.length - 1))
+      }
+    } else if (!self.emitter.listeners(eventName).length) {
+      // Unhandled
+      var unhandledListener = self.listeners['unhandled']
+      if (unhandledListener) unhandledListener(eventName, data)
+    } else if (eventName !== 'render') {
+      // *
+      if (self.hasPerformance) self.buffer.events[uuid] = data
+    }
+  })
+}
+
+// compute and log time till interactive when DOMContentLoaded event fires
+ChooHooks.prototype._emitLoaded = function () {
+  var self = this
+  scheduler.push(function clear () {
+    var listener = self.listeners['DOMContentLoaded']
+    var timing = self.hasWindow && window.performance && window.performance.timing
+
+    if (listener && timing) {
+      listener({
+        interactive: timing.domInteractive - timing.navigationStart,
+        loaded: timing.domContentLoadedEventEnd - timing.navigationStart
+      })
+    }
+  })
+}
+
+},{"assert":84,"nanoscheduler":65,"on-performance":68}],39:[function(require,module,exports){
+var assert = require('assert')
+var LRU = require('nanolru')
+
+module.exports = ChooComponentCache
+
+function ChooComponentCache (state, emit, lru) {
+  assert.ok(this instanceof ChooComponentCache, 'ChooComponentCache should be created with `new`')
+
+  assert.equal(typeof state, 'object', 'ChooComponentCache: state should be type object')
+  assert.equal(typeof emit, 'function', 'ChooComponentCache: emit should be type function')
+
+  if (typeof lru === 'number') this.cache = new LRU(lru)
+  else this.cache = lru || new LRU(100)
+  this.state = state
+  this.emit = emit
+}
+
+// Get & create component instances.
+ChooComponentCache.prototype.render = function (Component, id) {
+  assert.equal(typeof Component, 'function', 'ChooComponentCache.render: Component should be type function')
+  assert.ok(typeof id === 'string' || typeof id === 'number', 'ChooComponentCache.render: id should be type string or type number')
+
+  var el = this.cache.get(id)
+  if (!el) {
+    var args = []
+    for (var i = 2, len = arguments.length; i < len; i++) {
+      args.push(arguments[i])
+    }
+    args.unshift(Component, id, this.state, this.emit)
+    el = newCall.apply(newCall, args)
+    this.cache.set(id, el)
+  }
+
+  return el
+}
+
+// Because you can't call `new` and `.apply()` at the same time. This is a mad
+// hack, but hey it works so we gonna go for it. Whoop.
+function newCall (Cls) {
+  return new (Cls.bind.apply(Cls, arguments)) // eslint-disable-line
+}
+
+},{"assert":48,"nanolru":58}],40:[function(require,module,exports){
+module.exports = require('nanohtml')
+
+},{"nanohtml":53}],41:[function(require,module,exports){
+var scrollToAnchor = require('scroll-to-anchor')
+var documentReady = require('document-ready')
+var nanotiming = require('nanotiming')
+var nanorouter = require('nanorouter')
+var nanomorph = require('nanomorph')
+var nanoquery = require('nanoquery')
+var nanohref = require('nanohref')
+var nanoraf = require('nanoraf')
+var nanobus = require('nanobus')
+var assert = require('assert')
+
+var Cache = require('./component/cache')
+
+module.exports = Choo
+
+var HISTORY_OBJECT = {}
+
+function Choo (opts) {
+  var timing = nanotiming('choo.constructor')
+  if (!(this instanceof Choo)) return new Choo(opts)
+  opts = opts || {}
+
+  assert.equal(typeof opts, 'object', 'choo: opts should be type object')
+
+  var self = this
+
+  // define events used by choo
+  this._events = {
+    DOMCONTENTLOADED: 'DOMContentLoaded',
+    DOMTITLECHANGE: 'DOMTitleChange',
+    REPLACESTATE: 'replaceState',
+    PUSHSTATE: 'pushState',
+    NAVIGATE: 'navigate',
+    POPSTATE: 'popState',
+    RENDER: 'render'
+  }
+
+  // properties for internal use only
+  this._historyEnabled = opts.history === undefined ? true : opts.history
+  this._hrefEnabled = opts.href === undefined ? true : opts.href
+  this._hashEnabled = opts.hash === undefined ? false : opts.hash
+  this._hasWindow = typeof window !== 'undefined'
+  this._cache = opts.cache
+  this._loaded = false
+  this._stores = [ondomtitlechange]
+  this._tree = null
+
+  // state
+  var _state = {
+    events: this._events,
+    components: {}
+  }
+  if (this._hasWindow) {
+    this.state = window.initialState
+      ? Object.assign({}, window.initialState, _state)
+      : _state
+    delete window.initialState
+  } else {
+    this.state = _state
+  }
+
+  // properties that are part of the API
+  this.router = nanorouter({ curry: true })
+  this.emitter = nanobus('choo.emit')
+  this.emit = this.emitter.emit.bind(this.emitter)
+
+  // listen for title changes; available even when calling .toString()
+  if (this._hasWindow) this.state.title = document.title
+  function ondomtitlechange (state) {
+    self.emitter.prependListener(self._events.DOMTITLECHANGE, function (title) {
+      assert.equal(typeof title, 'string', 'events.DOMTitleChange: title should be type string')
+      state.title = title
+      if (self._hasWindow) document.title = title
+    })
+  }
+  timing()
+}
+
+Choo.prototype.route = function (route, handler) {
+  var routeTiming = nanotiming("choo.route('" + route + "')")
+  assert.equal(typeof route, 'string', 'choo.route: route should be type string')
+  assert.equal(typeof handler, 'function', 'choo.handler: route should be type function')
+  this.router.on(route, handler)
+  routeTiming()
+}
+
+Choo.prototype.use = function (cb) {
+  assert.equal(typeof cb, 'function', 'choo.use: cb should be type function')
+  var self = this
+  this._stores.push(function (state) {
+    var msg = 'choo.use'
+    msg = cb.storeName ? msg + '(' + cb.storeName + ')' : msg
+    var endTiming = nanotiming(msg)
+    cb(state, self.emitter, self)
+    endTiming()
+  })
+}
+
+Choo.prototype.start = function () {
+  assert.equal(typeof window, 'object', 'choo.start: window was not found. .start() must be called in a browser, use .toString() if running in Node')
+  var startTiming = nanotiming('choo.start')
+
+  var self = this
+  if (this._historyEnabled) {
+    this.emitter.prependListener(this._events.NAVIGATE, function () {
+      self._matchRoute(self.state)
+      if (self._loaded) {
+        self.emitter.emit(self._events.RENDER)
+        setTimeout(scrollToAnchor.bind(null, window.location.hash), 0)
+      }
+    })
+
+    this.emitter.prependListener(this._events.POPSTATE, function () {
+      self.emitter.emit(self._events.NAVIGATE)
+    })
+
+    this.emitter.prependListener(this._events.PUSHSTATE, function (href) {
+      assert.equal(typeof href, 'string', 'events.pushState: href should be type string')
+      window.history.pushState(HISTORY_OBJECT, null, href)
+      self.emitter.emit(self._events.NAVIGATE)
+    })
+
+    this.emitter.prependListener(this._events.REPLACESTATE, function (href) {
+      assert.equal(typeof href, 'string', 'events.replaceState: href should be type string')
+      window.history.replaceState(HISTORY_OBJECT, null, href)
+      self.emitter.emit(self._events.NAVIGATE)
+    })
+
+    window.onpopstate = function () {
+      self.emitter.emit(self._events.POPSTATE)
+    }
+
+    if (self._hrefEnabled) {
+      nanohref(function (location) {
+        var href = location.href
+        var hash = location.hash
+        if (href === window.location.href) {
+          if (!self._hashEnabled && hash) scrollToAnchor(hash)
+          return
+        }
+        self.emitter.emit(self._events.PUSHSTATE, href)
+      })
+    }
+  }
+
+  this._setCache(this.state)
+  this._matchRoute(this.state)
+  this._stores.forEach(function (initStore) {
+    initStore(self.state)
+  })
+
+  this._tree = this._prerender(this.state)
+  assert.ok(this._tree, 'choo.start: no valid DOM node returned for location ' + this.state.href)
+
+  this.emitter.prependListener(self._events.RENDER, nanoraf(function () {
+    var renderTiming = nanotiming('choo.render')
+    var newTree = self._prerender(self.state)
+    assert.ok(newTree, 'choo.render: no valid DOM node returned for location ' + self.state.href)
+
+    assert.equal(self._tree.nodeName, newTree.nodeName, 'choo.render: The target node <' +
+      self._tree.nodeName.toLowerCase() + '> is not the same type as the new node <' +
+      newTree.nodeName.toLowerCase() + '>.')
+
+    var morphTiming = nanotiming('choo.morph')
+    nanomorph(self._tree, newTree)
+    morphTiming()
+
+    renderTiming()
+  }))
+
+  documentReady(function () {
+    self.emitter.emit(self._events.DOMCONTENTLOADED)
+    self._loaded = true
+  })
+
+  startTiming()
+  return this._tree
+}
+
+Choo.prototype.mount = function mount (selector) {
+  var mountTiming = nanotiming("choo.mount('" + selector + "')")
+  if (typeof window !== 'object') {
+    assert.ok(typeof selector === 'string', 'choo.mount: selector should be type String')
+    this.selector = selector
+    mountTiming()
+    return this
+  }
+
+  assert.ok(typeof selector === 'string' || typeof selector === 'object', 'choo.mount: selector should be type String or HTMLElement')
+
+  var self = this
+
+  documentReady(function () {
+    var renderTiming = nanotiming('choo.render')
+    var newTree = self.start()
+    if (typeof selector === 'string') {
+      self._tree = document.querySelector(selector)
+    } else {
+      self._tree = selector
+    }
+
+    assert.ok(self._tree, 'choo.mount: could not query selector: ' + selector)
+    assert.equal(self._tree.nodeName, newTree.nodeName, 'choo.mount: The target node <' +
+      self._tree.nodeName.toLowerCase() + '> is not the same type as the new node <' +
+      newTree.nodeName.toLowerCase() + '>.')
+
+    var morphTiming = nanotiming('choo.morph')
+    nanomorph(self._tree, newTree)
+    morphTiming()
+
+    renderTiming()
+  })
+  mountTiming()
+}
+
+Choo.prototype.toString = function (location, state) {
+  state = state || {}
+  state.components = state.components || {}
+  state.events = Object.assign({}, state.events, this._events)
+
+  assert.notEqual(typeof window, 'object', 'choo.mount: window was found. .toString() must be called in Node, use .start() or .mount() if running in the browser')
+  assert.equal(typeof location, 'string', 'choo.toString: location should be type string')
+  assert.equal(typeof state, 'object', 'choo.toString: state should be type object')
+
+  this._setCache(state)
+  this._matchRoute(state, location)
+  this.emitter.removeAllListeners()
+  this._stores.forEach(function (initStore) {
+    initStore(state)
+  })
+
+  var html = this._prerender(state)
+  assert.ok(html, 'choo.toString: no valid value returned for the route ' + location)
+  assert(!Array.isArray(html), 'choo.toString: return value was an array for the route ' + location)
+  return typeof html.outerHTML === 'string' ? html.outerHTML : html.toString()
+}
+
+Choo.prototype._matchRoute = function (state, locationOverride) {
+  var location, queryString
+  if (locationOverride) {
+    location = locationOverride.replace(/\?.+$/, '').replace(/\/$/, '')
+    if (!this._hashEnabled) location = location.replace(/#.+$/, '')
+    queryString = locationOverride
+  } else {
+    location = window.location.pathname.replace(/\/$/, '')
+    if (this._hashEnabled) location += window.location.hash.replace(/^#/, '/')
+    queryString = window.location.search
+  }
+  var matched = this.router.match(location)
+  this._handler = matched.cb
+  state.href = location
+  state.query = nanoquery(queryString)
+  state.route = matched.route
+  state.params = matched.params
+}
+
+Choo.prototype._prerender = function (state) {
+  var routeTiming = nanotiming("choo.prerender('" + state.route + "')")
+  var res = this._handler(state, this.emit)
+  routeTiming()
+  return res
+}
+
+Choo.prototype._setCache = function (state) {
+  var cache = new Cache(state, this.emitter.emit.bind(this.emitter), this._cache)
+  state.cache = renderComponent
+
+  function renderComponent (Component, id) {
+    assert.equal(typeof Component, 'function', 'choo.state.cache: Component should be type function')
+    var args = []
+    for (var i = 0, len = arguments.length; i < len; i++) {
+      args.push(arguments[i])
+    }
+    return cache.render.apply(cache, args)
+  }
+
+  // When the state gets stringified, make sure `state.cache` isn't
+  // stringified too.
+  renderComponent.toJSON = function () {
+    return null
+  }
+}
+
+},{"./component/cache":39,"assert":48,"document-ready":43,"nanobus":49,"nanohref":50,"nanomorph":59,"nanoquery":62,"nanoraf":63,"nanorouter":64,"nanotiming":66,"scroll-to-anchor":72}],42:[function(require,module,exports){
+/*! clipboard-copy. MIT License. Feross Aboukhadijeh <https://feross.org/opensource> */
+/* global DOMException */
+
+module.exports = clipboardCopy
+
+function clipboardCopy (text) {
+  // Use the Async Clipboard API when available. Requires a secure browsing
+  // context (i.e. HTTPS)
+  if (navigator.clipboard) {
+    return navigator.clipboard.writeText(text).catch(function (err) {
+      throw (err !== undefined ? err : new DOMException('The request is not allowed', 'NotAllowedError'))
+    })
+  }
+
+  // ...Otherwise, use document.execCommand() fallback
+
+  // Put the text to copy into a <span>
+  var span = document.createElement('span')
+  span.textContent = text
+
+  // Preserve consecutive spaces and newlines
+  span.style.whiteSpace = 'pre'
+  span.style.webkitUserSelect = 'auto'
+  span.style.userSelect = 'all'
+
+  // Add the <span> to the page
+  document.body.appendChild(span)
+
+  // Make a selection object representing the range of text selected by the user
+  var selection = window.getSelection()
+  var range = window.document.createRange()
+  selection.removeAllRanges()
+  range.selectNode(span)
+  selection.addRange(range)
+
+  // Copy text to the clipboard
+  var success = false
+  try {
+    success = window.document.execCommand('copy')
+  } catch (err) {
+    console.log('error', err)
+  }
+
+  // Cleanup
+  selection.removeAllRanges()
+  window.document.body.removeChild(span)
+
+  return success
+    ? Promise.resolve()
+    : Promise.reject(new DOMException('The request is not allowed', 'NotAllowedError'))
+}
+
+},{}],43:[function(require,module,exports){
+'use strict'
+
+module.exports = ready
+
+function ready (callback) {
+  if (typeof document === 'undefined') {
+    throw new Error('document-ready only runs in the browser')
+  }
+  var state = document.readyState
+  if (state === 'complete' || state === 'interactive') {
+    return setTimeout(callback, 0)
+  }
+
+  document.addEventListener('DOMContentLoaded', function onLoad () {
+    callback()
+  })
+}
+
+},{}],44:[function(require,module,exports){
+module.exports = stringify
+stringify.default = stringify
+stringify.stable = deterministicStringify
+stringify.stableStringify = deterministicStringify
+
+var LIMIT_REPLACE_NODE = '[...]'
+var CIRCULAR_REPLACE_NODE = '[Circular]'
+
+var arr = []
+var replacerStack = []
+
+function defaultOptions () {
+  return {
+    depthLimit: Number.MAX_SAFE_INTEGER,
+    edgesLimit: Number.MAX_SAFE_INTEGER
+  }
+}
+
+// Regular stringify
+function stringify (obj, replacer, spacer, options) {
+  if (typeof options === 'undefined') {
+    options = defaultOptions()
+  }
+
+  decirc(obj, '', 0, [], undefined, 0, options)
+  var res
+  try {
+    if (replacerStack.length === 0) {
+      res = JSON.stringify(obj, replacer, spacer)
+    } else {
+      res = JSON.stringify(obj, replaceGetterValues(replacer), spacer)
+    }
+  } catch (_) {
+    return JSON.stringify('[unable to serialize, circular reference is too complex to analyze]')
+  } finally {
+    while (arr.length !== 0) {
+      var part = arr.pop()
+      if (part.length === 4) {
+        Object.defineProperty(part[0], part[1], part[3])
+      } else {
+        part[0][part[1]] = part[2]
+      }
+    }
+  }
+  return res
+}
+
+function setReplace (replace, val, k, parent) {
+  var propertyDescriptor = Object.getOwnPropertyDescriptor(parent, k)
+  if (propertyDescriptor.get !== undefined) {
+    if (propertyDescriptor.configurable) {
+      Object.defineProperty(parent, k, { value: replace })
+      arr.push([parent, k, val, propertyDescriptor])
+    } else {
+      replacerStack.push([val, k, replace])
+    }
+  } else {
+    parent[k] = replace
+    arr.push([parent, k, val])
+  }
+}
+
+function decirc (val, k, edgeIndex, stack, parent, depth, options) {
+  depth += 1
+  var i
+  if (typeof val === 'object' && val !== null) {
+    for (i = 0; i < stack.length; i++) {
+      if (stack[i] === val) {
+        setReplace(CIRCULAR_REPLACE_NODE, val, k, parent)
+        return
+      }
+    }
+
+    if (
+      typeof options.depthLimit !== 'undefined' &&
+      depth > options.depthLimit
+    ) {
+      setReplace(LIMIT_REPLACE_NODE, val, k, parent)
+      return
+    }
+
+    if (
+      typeof options.edgesLimit !== 'undefined' &&
+      edgeIndex + 1 > options.edgesLimit
+    ) {
+      setReplace(LIMIT_REPLACE_NODE, val, k, parent)
+      return
+    }
+
+    stack.push(val)
+    // Optimize for Arrays. Big arrays could kill the performance otherwise!
+    if (Array.isArray(val)) {
+      for (i = 0; i < val.length; i++) {
+        decirc(val[i], i, i, stack, val, depth, options)
+      }
+    } else {
+      var keys = Object.keys(val)
+      for (i = 0; i < keys.length; i++) {
+        var key = keys[i]
+        decirc(val[key], key, i, stack, val, depth, options)
+      }
+    }
+    stack.pop()
+  }
+}
+
+// Stable-stringify
+function compareFunction (a, b) {
+  if (a < b) {
+    return -1
+  }
+  if (a > b) {
+    return 1
+  }
+  return 0
+}
+
+function deterministicStringify (obj, replacer, spacer, options) {
+  if (typeof options === 'undefined') {
+    options = defaultOptions()
+  }
+
+  var tmp = deterministicDecirc(obj, '', 0, [], undefined, 0, options) || obj
+  var res
+  try {
+    if (replacerStack.length === 0) {
+      res = JSON.stringify(tmp, replacer, spacer)
+    } else {
+      res = JSON.stringify(tmp, replaceGetterValues(replacer), spacer)
+    }
+  } catch (_) {
+    return JSON.stringify('[unable to serialize, circular reference is too complex to analyze]')
+  } finally {
+    // Ensure that we restore the object as it was.
+    while (arr.length !== 0) {
+      var part = arr.pop()
+      if (part.length === 4) {
+        Object.defineProperty(part[0], part[1], part[3])
+      } else {
+        part[0][part[1]] = part[2]
+      }
+    }
+  }
+  return res
+}
+
+function deterministicDecirc (val, k, edgeIndex, stack, parent, depth, options) {
+  depth += 1
+  var i
+  if (typeof val === 'object' && val !== null) {
+    for (i = 0; i < stack.length; i++) {
+      if (stack[i] === val) {
+        setReplace(CIRCULAR_REPLACE_NODE, val, k, parent)
+        return
+      }
+    }
+    try {
+      if (typeof val.toJSON === 'function') {
+        return
+      }
+    } catch (_) {
+      return
+    }
+
+    if (
+      typeof options.depthLimit !== 'undefined' &&
+      depth > options.depthLimit
+    ) {
+      setReplace(LIMIT_REPLACE_NODE, val, k, parent)
+      return
+    }
+
+    if (
+      typeof options.edgesLimit !== 'undefined' &&
+      edgeIndex + 1 > options.edgesLimit
+    ) {
+      setReplace(LIMIT_REPLACE_NODE, val, k, parent)
+      return
+    }
+
+    stack.push(val)
+    // Optimize for Arrays. Big arrays could kill the performance otherwise!
+    if (Array.isArray(val)) {
+      for (i = 0; i < val.length; i++) {
+        deterministicDecirc(val[i], i, i, stack, val, depth, options)
+      }
+    } else {
+      // Create a temporary object in the required way
+      var tmp = {}
+      var keys = Object.keys(val).sort(compareFunction)
+      for (i = 0; i < keys.length; i++) {
+        var key = keys[i]
+        deterministicDecirc(val[key], key, i, stack, val, depth, options)
+        tmp[key] = val[key]
+      }
+      if (typeof parent !== 'undefined') {
+        arr.push([parent, k, val])
+        parent[k] = tmp
+      } else {
+        return tmp
+      }
+    }
+    stack.pop()
+  }
+}
+
+// wraps replacer function to handle values we couldn't replace
+// and mark them as replaced value
+function replaceGetterValues (replacer) {
+  replacer =
+    typeof replacer !== 'undefined'
+      ? replacer
+      : function (k, v) {
+        return v
+      }
+  return function (key, val) {
+    if (replacerStack.length > 0) {
+      for (var i = 0; i < replacerStack.length; i++) {
+        var part = replacerStack[i]
+        if (part[1] === key && part[0] === val) {
+          val = part[2]
+          replacerStack.splice(i, 1)
+          break
+        }
+      }
+    }
+    return replacer.call(this, key, val)
+  }
+}
+
+},{}],45:[function(require,module,exports){
+module.exports = attributeToProperty
+
+var transform = {
+  'class': 'className',
+  'for': 'htmlFor',
+  'http-equiv': 'httpEquiv'
+}
+
+function attributeToProperty (h) {
+  return function (tagName, attrs, children) {
+    for (var attr in attrs) {
+      if (attr in transform) {
+        attrs[transform[attr]] = attrs[attr]
+        delete attrs[attr]
+      }
+    }
+    return h(tagName, attrs, children)
+  }
+}
+
+},{}],46:[function(require,module,exports){
+var attrToProp = require('hyperscript-attribute-to-property')
+
+var VAR = 0, TEXT = 1, OPEN = 2, CLOSE = 3, ATTR = 4
+var ATTR_KEY = 5, ATTR_KEY_W = 6
+var ATTR_VALUE_W = 7, ATTR_VALUE = 8
+var ATTR_VALUE_SQ = 9, ATTR_VALUE_DQ = 10
+var ATTR_EQ = 11, ATTR_BREAK = 12
+var COMMENT = 13
+
+module.exports = function (h, opts) {
+  if (!opts) opts = {}
+  var concat = opts.concat || function (a, b) {
+    return String(a) + String(b)
+  }
+  if (opts.attrToProp !== false) {
+    h = attrToProp(h)
+  }
+
+  return function (strings) {
+    var state = TEXT, reg = ''
+    var arglen = arguments.length
+    var parts = []
+
+    for (var i = 0; i < strings.length; i++) {
+      if (i < arglen - 1) {
+        var arg = arguments[i+1]
+        var p = parse(strings[i])
+        var xstate = state
+        if (xstate === ATTR_VALUE_DQ) xstate = ATTR_VALUE
+        if (xstate === ATTR_VALUE_SQ) xstate = ATTR_VALUE
+        if (xstate === ATTR_VALUE_W) xstate = ATTR_VALUE
+        if (xstate === ATTR) xstate = ATTR_KEY
+        if (xstate === OPEN) {
+          if (reg === '/') {
+            p.push([ OPEN, '/', arg ])
+            reg = ''
+          } else {
+            p.push([ OPEN, arg ])
+          }
+        } else if (xstate === COMMENT && opts.comments) {
+          reg += String(arg)
+        } else if (xstate !== COMMENT) {
+          p.push([ VAR, xstate, arg ])
+        }
+        parts.push.apply(parts, p)
+      } else parts.push.apply(parts, parse(strings[i]))
+    }
+
+    var tree = [null,{},[]]
+    var stack = [[tree,-1]]
+    for (var i = 0; i < parts.length; i++) {
+      var cur = stack[stack.length-1][0]
+      var p = parts[i], s = p[0]
+      if (s === OPEN && /^\//.test(p[1])) {
+        var ix = stack[stack.length-1][1]
+        if (stack.length > 1) {
+          stack.pop()
+          stack[stack.length-1][0][2][ix] = h(
+            cur[0], cur[1], cur[2].length ? cur[2] : undefined
+          )
+        }
+      } else if (s === OPEN) {
+        var c = [p[1],{},[]]
+        cur[2].push(c)
+        stack.push([c,cur[2].length-1])
+      } else if (s === ATTR_KEY || (s === VAR && p[1] === ATTR_KEY)) {
+        var key = ''
+        var copyKey
+        for (; i < parts.length; i++) {
+          if (parts[i][0] === ATTR_KEY) {
+            key = concat(key, parts[i][1])
+          } else if (parts[i][0] === VAR && parts[i][1] === ATTR_KEY) {
+            if (typeof parts[i][2] === 'object' && !key) {
+              for (copyKey in parts[i][2]) {
+                if (parts[i][2].hasOwnProperty(copyKey) && !cur[1][copyKey]) {
+                  cur[1][copyKey] = parts[i][2][copyKey]
+                }
+              }
+            } else {
+              key = concat(key, parts[i][2])
+            }
+          } else break
+        }
+        if (parts[i][0] === ATTR_EQ) i++
+        var j = i
+        for (; i < parts.length; i++) {
+          if (parts[i][0] === ATTR_VALUE || parts[i][0] === ATTR_KEY) {
+            if (!cur[1][key]) cur[1][key] = strfn(parts[i][1])
+            else parts[i][1]==="" || (cur[1][key] = concat(cur[1][key], parts[i][1]));
+          } else if (parts[i][0] === VAR
+          && (parts[i][1] === ATTR_VALUE || parts[i][1] === ATTR_KEY)) {
+            if (!cur[1][key]) cur[1][key] = strfn(parts[i][2])
+            else parts[i][2]==="" || (cur[1][key] = concat(cur[1][key], parts[i][2]));
+          } else {
+            if (key.length && !cur[1][key] && i === j
+            && (parts[i][0] === CLOSE || parts[i][0] === ATTR_BREAK)) {
+              // https://html.spec.whatwg.org/multipage/infrastructure.html#boolean-attributes
+              // empty string is falsy, not well behaved value in browser
+              cur[1][key] = key.toLowerCase()
+            }
+            if (parts[i][0] === CLOSE) {
+              i--
+            }
+            break
+          }
+        }
+      } else if (s === ATTR_KEY) {
+        cur[1][p[1]] = true
+      } else if (s === VAR && p[1] === ATTR_KEY) {
+        cur[1][p[2]] = true
+      } else if (s === CLOSE) {
+        if (selfClosing(cur[0]) && stack.length) {
+          var ix = stack[stack.length-1][1]
+          stack.pop()
+          stack[stack.length-1][0][2][ix] = h(
+            cur[0], cur[1], cur[2].length ? cur[2] : undefined
+          )
+        }
+      } else if (s === VAR && p[1] === TEXT) {
+        if (p[2] === undefined || p[2] === null) p[2] = ''
+        else if (!p[2]) p[2] = concat('', p[2])
+        if (Array.isArray(p[2][0])) {
+          cur[2].push.apply(cur[2], p[2])
+        } else {
+          cur[2].push(p[2])
+        }
+      } else if (s === TEXT) {
+        cur[2].push(p[1])
+      } else if (s === ATTR_EQ || s === ATTR_BREAK) {
+        // no-op
+      } else {
+        throw new Error('unhandled: ' + s)
+      }
+    }
+
+    if (tree[2].length > 1 && /^\s*$/.test(tree[2][0])) {
+      tree[2].shift()
+    }
+
+    if (tree[2].length > 2
+    || (tree[2].length === 2 && /\S/.test(tree[2][1]))) {
+      if (opts.createFragment) return opts.createFragment(tree[2])
+      throw new Error(
+        'multiple root elements must be wrapped in an enclosing tag'
+      )
+    }
+    if (Array.isArray(tree[2][0]) && typeof tree[2][0][0] === 'string'
+    && Array.isArray(tree[2][0][2])) {
+      tree[2][0] = h(tree[2][0][0], tree[2][0][1], tree[2][0][2])
+    }
+    return tree[2][0]
+
+    function parse (str) {
+      var res = []
+      if (state === ATTR_VALUE_W) state = ATTR
+      for (var i = 0; i < str.length; i++) {
+        var c = str.charAt(i)
+        if (state === TEXT && c === '<') {
+          if (reg.length) res.push([TEXT, reg])
+          reg = ''
+          state = OPEN
+        } else if (c === '>' && !quot(state) && state !== COMMENT) {
+          if (state === OPEN && reg.length) {
+            res.push([OPEN,reg])
+          } else if (state === ATTR_KEY) {
+            res.push([ATTR_KEY,reg])
+          } else if (state === ATTR_VALUE && reg.length) {
+            res.push([ATTR_VALUE,reg])
+          }
+          res.push([CLOSE])
+          reg = ''
+          state = TEXT
+        } else if (state === COMMENT && /-$/.test(reg) && c === '-') {
+          if (opts.comments) {
+            res.push([ATTR_VALUE,reg.substr(0, reg.length - 1)])
+          }
+          reg = ''
+          state = TEXT
+        } else if (state === OPEN && /^!--$/.test(reg)) {
+          if (opts.comments) {
+            res.push([OPEN, reg],[ATTR_KEY,'comment'],[ATTR_EQ])
+          }
+          reg = c
+          state = COMMENT
+        } else if (state === TEXT || state === COMMENT) {
+          reg += c
+        } else if (state === OPEN && c === '/' && reg.length) {
+          // no-op, self closing tag without a space <br/>
+        } else if (state === OPEN && /\s/.test(c)) {
+          if (reg.length) {
+            res.push([OPEN, reg])
+          }
+          reg = ''
+          state = ATTR
+        } else if (state === OPEN) {
+          reg += c
+        } else if (state === ATTR && /[^\s"'=/]/.test(c)) {
+          state = ATTR_KEY
+          reg = c
+        } else if (state === ATTR && /\s/.test(c)) {
+          if (reg.length) res.push([ATTR_KEY,reg])
+          res.push([ATTR_BREAK])
+        } else if (state === ATTR_KEY && /\s/.test(c)) {
+          res.push([ATTR_KEY,reg])
+          reg = ''
+          state = ATTR_KEY_W
+        } else if (state === ATTR_KEY && c === '=') {
+          res.push([ATTR_KEY,reg],[ATTR_EQ])
+          reg = ''
+          state = ATTR_VALUE_W
+        } else if (state === ATTR_KEY) {
+          reg += c
+        } else if ((state === ATTR_KEY_W || state === ATTR) && c === '=') {
+          res.push([ATTR_EQ])
+          state = ATTR_VALUE_W
+        } else if ((state === ATTR_KEY_W || state === ATTR) && !/\s/.test(c)) {
+          res.push([ATTR_BREAK])
+          if (/[\w-]/.test(c)) {
+            reg += c
+            state = ATTR_KEY
+          } else state = ATTR
+        } else if (state === ATTR_VALUE_W && c === '"') {
+          state = ATTR_VALUE_DQ
+        } else if (state === ATTR_VALUE_W && c === "'") {
+          state = ATTR_VALUE_SQ
+        } else if (state === ATTR_VALUE_DQ && c === '"') {
+          res.push([ATTR_VALUE,reg],[ATTR_BREAK])
+          reg = ''
+          state = ATTR
+        } else if (state === ATTR_VALUE_SQ && c === "'") {
+          res.push([ATTR_VALUE,reg],[ATTR_BREAK])
+          reg = ''
+          state = ATTR
+        } else if (state === ATTR_VALUE_W && !/\s/.test(c)) {
+          state = ATTR_VALUE
+          i--
+        } else if (state === ATTR_VALUE && /\s/.test(c)) {
+          res.push([ATTR_VALUE,reg],[ATTR_BREAK])
+          reg = ''
+          state = ATTR
+        } else if (state === ATTR_VALUE || state === ATTR_VALUE_SQ
+        || state === ATTR_VALUE_DQ) {
+          reg += c
+        }
+      }
+      if (state === TEXT && reg.length) {
+        res.push([TEXT,reg])
+        reg = ''
+      } else if (state === ATTR_VALUE && reg.length) {
+        res.push([ATTR_VALUE,reg])
+        reg = ''
+      } else if (state === ATTR_VALUE_DQ && reg.length) {
+        res.push([ATTR_VALUE,reg])
+        reg = ''
+      } else if (state === ATTR_VALUE_SQ && reg.length) {
+        res.push([ATTR_VALUE,reg])
+        reg = ''
+      } else if (state === ATTR_KEY) {
+        res.push([ATTR_KEY,reg])
+        reg = ''
+      }
+      return res
+    }
+  }
+
+  function strfn (x) {
+    if (typeof x === 'function') return x
+    else if (typeof x === 'string') return x
+    else if (x && typeof x === 'object') return x
+    else if (x === null || x === undefined) return x
+    else return concat('', x)
+  }
+}
+
+function quot (state) {
+  return state === ATTR_VALUE_SQ || state === ATTR_VALUE_DQ
+}
+
+var closeRE = RegExp('^(' + [
+  'area', 'base', 'basefont', 'bgsound', 'br', 'col', 'command', 'embed',
+  'frame', 'hr', 'img', 'input', 'isindex', 'keygen', 'link', 'meta', 'param',
+  'source', 'track', 'wbr', '!--',
+  // SVG TAGS
+  'animate', 'animateTransform', 'circle', 'cursor', 'desc', 'ellipse',
+  'feBlend', 'feColorMatrix', 'feComposite',
+  'feConvolveMatrix', 'feDiffuseLighting', 'feDisplacementMap',
+  'feDistantLight', 'feFlood', 'feFuncA', 'feFuncB', 'feFuncG', 'feFuncR',
+  'feGaussianBlur', 'feImage', 'feMergeNode', 'feMorphology',
+  'feOffset', 'fePointLight', 'feSpecularLighting', 'feSpotLight', 'feTile',
+  'feTurbulence', 'font-face-format', 'font-face-name', 'font-face-uri',
+  'glyph', 'glyphRef', 'hkern', 'image', 'line', 'missing-glyph', 'mpath',
+  'path', 'polygon', 'polyline', 'rect', 'set', 'stop', 'tref', 'use', 'view',
+  'vkern'
+].join('|') + ')(?:[\.#][a-zA-Z0-9\u007F-\uFFFF_:-]+)*$')
+function selfClosing (tag) { return closeRE.test(tag) }
+
+},{"hyperscript-attribute-to-property":45}],47:[function(require,module,exports){
 //! moment.js
 //! version : 2.29.1
 //! authors : Tim Wood, Iskren Chernev, Moment.js contributors
@@ -23420,136 +25282,2146 @@ return src;
 
 })));
 
-},{}],29:[function(require,module,exports){
-const Chart = require('chart.js')
-const axios = require('axios').default
-const EventEmitter = require('events').EventEmitter
+},{}],48:[function(require,module,exports){
+assert.notEqual = notEqual
+assert.notOk = notOk
+assert.equal = equal
+assert.ok = assert
 
-const { PORT } = require('../variables.json')
+module.exports = assert
 
-let chart = null
+function equal (a, b, m) {
+  assert(a == b, m) // eslint-disable-line eqeqeq
+}
 
-function initChart () {
-  const canvas = document.querySelector('canvas')
-  const ctx = canvas.getContext('2d')
-  chart = new Chart(ctx, {
-    type: 'line',
-    options: {
-      tooltips: {
-        mode: 'index',
-        intersect: false
-      },
-      hover: {
-        mode: 'nearest',
-        intersect: true
-      },
-      scales: {
-        xAxes: [{
-          type: 'time'
-        }]
+function notEqual (a, b, m) {
+  assert(a != b, m) // eslint-disable-line eqeqeq
+}
+
+function notOk (t, m) {
+  assert(!t, m)
+}
+
+function assert (t, m) {
+  if (!t) throw new Error(m || 'AssertionError')
+}
+
+},{}],49:[function(require,module,exports){
+var splice = require('remove-array-items')
+var nanotiming = require('nanotiming')
+var assert = require('assert')
+
+module.exports = Nanobus
+
+function Nanobus (name) {
+  if (!(this instanceof Nanobus)) return new Nanobus(name)
+
+  this._name = name || 'nanobus'
+  this._starListeners = []
+  this._listeners = {}
+}
+
+Nanobus.prototype.emit = function (eventName) {
+  assert.ok(typeof eventName === 'string' || typeof eventName === 'symbol', 'nanobus.emit: eventName should be type string or symbol')
+
+  var data = []
+  for (var i = 1, len = arguments.length; i < len; i++) {
+    data.push(arguments[i])
+  }
+
+  var emitTiming = nanotiming(this._name + "('" + eventName.toString() + "')")
+  var listeners = this._listeners[eventName]
+  if (listeners && listeners.length > 0) {
+    this._emit(this._listeners[eventName], data)
+  }
+
+  if (this._starListeners.length > 0) {
+    this._emit(this._starListeners, eventName, data, emitTiming.uuid)
+  }
+  emitTiming()
+
+  return this
+}
+
+Nanobus.prototype.on = Nanobus.prototype.addListener = function (eventName, listener) {
+  assert.ok(typeof eventName === 'string' || typeof eventName === 'symbol', 'nanobus.on: eventName should be type string or symbol')
+  assert.equal(typeof listener, 'function', 'nanobus.on: listener should be type function')
+
+  if (eventName === '*') {
+    this._starListeners.push(listener)
+  } else {
+    if (!this._listeners[eventName]) this._listeners[eventName] = []
+    this._listeners[eventName].push(listener)
+  }
+  return this
+}
+
+Nanobus.prototype.prependListener = function (eventName, listener) {
+  assert.ok(typeof eventName === 'string' || typeof eventName === 'symbol', 'nanobus.prependListener: eventName should be type string or symbol')
+  assert.equal(typeof listener, 'function', 'nanobus.prependListener: listener should be type function')
+
+  if (eventName === '*') {
+    this._starListeners.unshift(listener)
+  } else {
+    if (!this._listeners[eventName]) this._listeners[eventName] = []
+    this._listeners[eventName].unshift(listener)
+  }
+  return this
+}
+
+Nanobus.prototype.once = function (eventName, listener) {
+  assert.ok(typeof eventName === 'string' || typeof eventName === 'symbol', 'nanobus.once: eventName should be type string or symbol')
+  assert.equal(typeof listener, 'function', 'nanobus.once: listener should be type function')
+
+  var self = this
+  this.on(eventName, once)
+  function once () {
+    listener.apply(self, arguments)
+    self.removeListener(eventName, once)
+  }
+  return this
+}
+
+Nanobus.prototype.prependOnceListener = function (eventName, listener) {
+  assert.ok(typeof eventName === 'string' || typeof eventName === 'symbol', 'nanobus.prependOnceListener: eventName should be type string or symbol')
+  assert.equal(typeof listener, 'function', 'nanobus.prependOnceListener: listener should be type function')
+
+  var self = this
+  this.prependListener(eventName, once)
+  function once () {
+    listener.apply(self, arguments)
+    self.removeListener(eventName, once)
+  }
+  return this
+}
+
+Nanobus.prototype.removeListener = function (eventName, listener) {
+  assert.ok(typeof eventName === 'string' || typeof eventName === 'symbol', 'nanobus.removeListener: eventName should be type string or symbol')
+  assert.equal(typeof listener, 'function', 'nanobus.removeListener: listener should be type function')
+
+  if (eventName === '*') {
+    this._starListeners = this._starListeners.slice()
+    return remove(this._starListeners, listener)
+  } else {
+    if (typeof this._listeners[eventName] !== 'undefined') {
+      this._listeners[eventName] = this._listeners[eventName].slice()
+    }
+
+    return remove(this._listeners[eventName], listener)
+  }
+
+  function remove (arr, listener) {
+    if (!arr) return
+    var index = arr.indexOf(listener)
+    if (index !== -1) {
+      splice(arr, index, 1)
+      return true
+    }
+  }
+}
+
+Nanobus.prototype.removeAllListeners = function (eventName) {
+  if (eventName) {
+    if (eventName === '*') {
+      this._starListeners = []
+    } else {
+      this._listeners[eventName] = []
+    }
+  } else {
+    this._starListeners = []
+    this._listeners = {}
+  }
+  return this
+}
+
+Nanobus.prototype.listeners = function (eventName) {
+  var listeners = eventName !== '*'
+    ? this._listeners[eventName]
+    : this._starListeners
+
+  var ret = []
+  if (listeners) {
+    var ilength = listeners.length
+    for (var i = 0; i < ilength; i++) ret.push(listeners[i])
+  }
+  return ret
+}
+
+Nanobus.prototype._emit = function (arr, eventName, data, uuid) {
+  if (typeof arr === 'undefined') return
+  if (arr.length === 0) return
+  if (data === undefined) {
+    data = eventName
+    eventName = null
+  }
+
+  if (eventName) {
+    if (uuid !== undefined) {
+      data = [eventName].concat(data, uuid)
+    } else {
+      data = [eventName].concat(data)
+    }
+  }
+
+  var length = arr.length
+  for (var i = 0; i < length; i++) {
+    var listener = arr[i]
+    listener.apply(listener, data)
+  }
+}
+
+},{"assert":48,"nanotiming":66,"remove-array-items":71}],50:[function(require,module,exports){
+var assert = require('assert')
+
+var safeExternalLink = /(noopener|noreferrer) (noopener|noreferrer)/
+var protocolLink = /^[\w-_]+:/
+
+module.exports = href
+
+function href (cb, root) {
+  assert.notEqual(typeof window, 'undefined', 'nanohref: expected window to exist')
+
+  root = root || window.document
+
+  assert.equal(typeof cb, 'function', 'nanohref: cb should be type function')
+  assert.equal(typeof root, 'object', 'nanohref: root should be type object')
+
+  window.addEventListener('click', function (e) {
+    if ((e.button && e.button !== 0) ||
+      e.ctrlKey || e.metaKey || e.altKey || e.shiftKey ||
+      e.defaultPrevented) return
+
+    var anchor = (function traverse (node) {
+      if (!node || node === root) return
+      if (node.localName !== 'a' || node.href === undefined) {
+        return traverse(node.parentNode)
       }
+      return node
+    })(e.target)
+
+    if (!anchor) return
+
+    if (window.location.protocol !== anchor.protocol ||
+        window.location.hostname !== anchor.hostname ||
+        window.location.port !== anchor.port ||
+      anchor.hasAttribute('data-nanohref-ignore') ||
+      anchor.hasAttribute('download') ||
+      (anchor.getAttribute('target') === '_blank' &&
+        safeExternalLink.test(anchor.getAttribute('rel'))) ||
+      protocolLink.test(anchor.getAttribute('href'))) return
+
+    e.preventDefault()
+    cb(anchor)
+  })
+}
+
+},{"assert":48}],51:[function(require,module,exports){
+'use strict'
+
+var trailingNewlineRegex = /\n[\s]+$/
+var leadingNewlineRegex = /^\n[\s]+/
+var trailingSpaceRegex = /[\s]+$/
+var leadingSpaceRegex = /^[\s]+/
+var multiSpaceRegex = /[\n\s]+/g
+
+var TEXT_TAGS = [
+  'a', 'abbr', 'b', 'bdi', 'bdo', 'br', 'cite', 'data', 'dfn', 'em', 'i',
+  'kbd', 'mark', 'q', 'rp', 'rt', 'rtc', 'ruby', 's', 'amp', 'small', 'span',
+  'strong', 'sub', 'sup', 'time', 'u', 'var', 'wbr'
+]
+
+var VERBATIM_TAGS = [
+  'code', 'pre', 'textarea'
+]
+
+module.exports = function appendChild (el, childs) {
+  if (!Array.isArray(childs)) return
+
+  var nodeName = el.nodeName.toLowerCase()
+
+  var hadText = false
+  var value, leader
+
+  for (var i = 0, len = childs.length; i < len; i++) {
+    var node = childs[i]
+    if (Array.isArray(node)) {
+      appendChild(el, node)
+      continue
+    }
+
+    if (typeof node === 'number' ||
+      typeof node === 'boolean' ||
+      typeof node === 'function' ||
+      node instanceof Date ||
+      node instanceof RegExp) {
+      node = node.toString()
+    }
+
+    var lastChild = el.childNodes[el.childNodes.length - 1]
+
+    // Iterate over text nodes
+    if (typeof node === 'string') {
+      hadText = true
+
+      // If we already had text, append to the existing text
+      if (lastChild && lastChild.nodeName === '#text') {
+        lastChild.nodeValue += node
+
+      // We didn't have a text node yet, create one
+      } else {
+        node = el.ownerDocument.createTextNode(node)
+        el.appendChild(node)
+        lastChild = node
+      }
+
+      // If this is the last of the child nodes, make sure we close it out
+      // right
+      if (i === len - 1) {
+        hadText = false
+        // Trim the child text nodes if the current node isn't a
+        // node where whitespace matters.
+        if (TEXT_TAGS.indexOf(nodeName) === -1 &&
+          VERBATIM_TAGS.indexOf(nodeName) === -1) {
+          value = lastChild.nodeValue
+            .replace(leadingNewlineRegex, '')
+            .replace(trailingSpaceRegex, '')
+            .replace(trailingNewlineRegex, '')
+            .replace(multiSpaceRegex, ' ')
+          if (value === '') {
+            el.removeChild(lastChild)
+          } else {
+            lastChild.nodeValue = value
+          }
+        } else if (VERBATIM_TAGS.indexOf(nodeName) === -1) {
+          // The very first node in the list should not have leading
+          // whitespace. Sibling text nodes should have whitespace if there
+          // was any.
+          leader = i === 0 ? '' : ' '
+          value = lastChild.nodeValue
+            .replace(leadingNewlineRegex, leader)
+            .replace(leadingSpaceRegex, ' ')
+            .replace(trailingSpaceRegex, '')
+            .replace(trailingNewlineRegex, '')
+            .replace(multiSpaceRegex, ' ')
+          lastChild.nodeValue = value
+        }
+      }
+
+    // Iterate over DOM nodes
+    } else if (node && node.nodeType) {
+      // If the last node was a text node, make sure it is properly closed out
+      if (hadText) {
+        hadText = false
+
+        // Trim the child text nodes if the current node isn't a
+        // text node or a code node
+        if (TEXT_TAGS.indexOf(nodeName) === -1 &&
+          VERBATIM_TAGS.indexOf(nodeName) === -1) {
+          value = lastChild.nodeValue
+            .replace(leadingNewlineRegex, '')
+            .replace(trailingNewlineRegex, ' ')
+            .replace(multiSpaceRegex, ' ')
+
+          // Remove empty text nodes, append otherwise
+          if (value === '') {
+            el.removeChild(lastChild)
+          } else {
+            lastChild.nodeValue = value
+          }
+        // Trim the child nodes but preserve the appropriate whitespace
+        } else if (VERBATIM_TAGS.indexOf(nodeName) === -1) {
+          value = lastChild.nodeValue
+            .replace(leadingSpaceRegex, ' ')
+            .replace(leadingNewlineRegex, '')
+            .replace(trailingNewlineRegex, ' ')
+            .replace(multiSpaceRegex, ' ')
+          lastChild.nodeValue = value
+        }
+      }
+
+      // Store the last nodename
+      var _nodeName = node.nodeName
+      if (_nodeName) nodeName = _nodeName.toLowerCase()
+
+      // Append the node to the DOM
+      el.appendChild(node)
+    }
+  }
+}
+
+},{}],52:[function(require,module,exports){
+'use strict'
+
+module.exports = [
+  'async', 'autofocus', 'autoplay', 'checked', 'controls', 'default',
+  'defaultchecked', 'defer', 'disabled', 'formnovalidate', 'hidden',
+  'ismap', 'loop', 'multiple', 'muted', 'novalidate', 'open', 'playsinline',
+  'readonly', 'required', 'reversed', 'selected'
+]
+
+},{}],53:[function(require,module,exports){
+module.exports = require('./dom')(document)
+
+},{"./dom":55}],54:[function(require,module,exports){
+'use strict'
+
+module.exports = [
+  'indeterminate'
+]
+
+},{}],55:[function(require,module,exports){
+'use strict'
+
+var hyperx = require('hyperx')
+var appendChild = require('./append-child')
+var SVG_TAGS = require('./svg-tags')
+var BOOL_PROPS = require('./bool-props')
+// Props that need to be set directly rather than with el.setAttribute()
+var DIRECT_PROPS = require('./direct-props')
+
+var SVGNS = 'http://www.w3.org/2000/svg'
+var XLINKNS = 'http://www.w3.org/1999/xlink'
+
+var COMMENT_TAG = '!--'
+
+module.exports = function (document) {
+  function nanoHtmlCreateElement (tag, props, children) {
+    var el
+
+    // If an svg tag, it needs a namespace
+    if (SVG_TAGS.indexOf(tag) !== -1) {
+      props.namespace = SVGNS
+    }
+
+    // If we are using a namespace
+    var ns = false
+    if (props.namespace) {
+      ns = props.namespace
+      delete props.namespace
+    }
+
+    // If we are extending a builtin element
+    var isCustomElement = false
+    if (props.is) {
+      isCustomElement = props.is
+      delete props.is
+    }
+
+    // Create the element
+    if (ns) {
+      if (isCustomElement) {
+        el = document.createElementNS(ns, tag, { is: isCustomElement })
+      } else {
+        el = document.createElementNS(ns, tag)
+      }
+    } else if (tag === COMMENT_TAG) {
+      return document.createComment(props.comment)
+    } else if (isCustomElement) {
+      el = document.createElement(tag, { is: isCustomElement })
+    } else {
+      el = document.createElement(tag)
+    }
+
+    // Create the properties
+    for (var p in props) {
+      if (props.hasOwnProperty(p)) {
+        var key = p.toLowerCase()
+        var val = props[p]
+        // Normalize className
+        if (key === 'classname') {
+          key = 'class'
+          p = 'class'
+        }
+        // The for attribute gets transformed to htmlFor, but we just set as for
+        if (p === 'htmlFor') {
+          p = 'for'
+        }
+        // If a property is boolean, set itself to the key
+        if (BOOL_PROPS.indexOf(key) !== -1) {
+          if (String(val) === 'true') val = key
+          else if (String(val) === 'false') continue
+        }
+        // If a property prefers being set directly vs setAttribute
+        if (key.slice(0, 2) === 'on' || DIRECT_PROPS.indexOf(key) !== -1) {
+          el[p] = val
+        } else {
+          if (ns) {
+            if (p === 'xlink:href') {
+              el.setAttributeNS(XLINKNS, p, val)
+            } else if (/^xmlns($|:)/i.test(p)) {
+              // skip xmlns definitions
+            } else {
+              el.setAttributeNS(null, p, val)
+            }
+          } else {
+            el.setAttribute(p, val)
+          }
+        }
+      }
+    }
+
+    appendChild(el, children)
+    return el
+  }
+
+  function createFragment (nodes) {
+    var fragment = document.createDocumentFragment()
+    for (var i = 0; i < nodes.length; i++) {
+      if (nodes[i] == null) continue
+      if (Array.isArray(nodes[i])) {
+        fragment.appendChild(createFragment(nodes[i]))
+      } else {
+        if (typeof nodes[i] === 'string') nodes[i] = document.createTextNode(nodes[i])
+        fragment.appendChild(nodes[i])
+      }
+    }
+    return fragment
+  }
+
+  var exports = hyperx(nanoHtmlCreateElement, {
+    comments: true,
+    createFragment: createFragment
+  })
+  exports.default = exports
+  exports.createComment = nanoHtmlCreateElement
+  return exports
+}
+
+},{"./append-child":51,"./bool-props":52,"./direct-props":54,"./svg-tags":56,"hyperx":46}],56:[function(require,module,exports){
+'use strict'
+
+module.exports = [
+  'svg', 'altGlyph', 'altGlyphDef', 'altGlyphItem', 'animate', 'animateColor',
+  'animateMotion', 'animateTransform', 'circle', 'clipPath', 'color-profile',
+  'cursor', 'defs', 'desc', 'ellipse', 'feBlend', 'feColorMatrix',
+  'feComponentTransfer', 'feComposite', 'feConvolveMatrix',
+  'feDiffuseLighting', 'feDisplacementMap', 'feDistantLight', 'feFlood',
+  'feFuncA', 'feFuncB', 'feFuncG', 'feFuncR', 'feGaussianBlur', 'feImage',
+  'feMerge', 'feMergeNode', 'feMorphology', 'feOffset', 'fePointLight',
+  'feSpecularLighting', 'feSpotLight', 'feTile', 'feTurbulence', 'filter',
+  'font', 'font-face', 'font-face-format', 'font-face-name', 'font-face-src',
+  'font-face-uri', 'foreignObject', 'g', 'glyph', 'glyphRef', 'hkern', 'image',
+  'line', 'linearGradient', 'marker', 'mask', 'metadata', 'missing-glyph',
+  'mpath', 'path', 'pattern', 'polygon', 'polyline', 'radialGradient', 'rect',
+  'set', 'stop', 'switch', 'symbol', 'text', 'textPath', 'title', 'tref',
+  'tspan', 'use', 'view', 'vkern'
+]
+
+},{}],57:[function(require,module,exports){
+var assert = require('assert')
+
+var emojis = {
+  trace: '🔍',
+  debug: '🐛',
+  info: '✨',
+  warn: '⚠️',
+  error: '🚨',
+  fatal: '💀'
+}
+
+var levels = {
+  trace: 10,
+  debug: 20,
+  info: 30,
+  warn: 40,
+  error: 50,
+  fatal: 60
+}
+
+var defaultColors = {
+  foreground: '#d3c0c8',
+  background: '#2d2d2d',
+  black: '#2d2d2d',
+  red: '#f2777a',
+  green: '#99cc99',
+  yellow: '#ffcc66',
+  blue: '#6699cc',
+  magenta: '#cc99cc',
+  cyan: '#66cccc',
+  white: '#d3d0c8',
+  brightBlack: '#747369'
+}
+
+module.exports = Nanologger
+
+function Nanologger (name, opts) {
+  opts = opts || {}
+  if (!(this instanceof Nanologger)) return new Nanologger(name, opts)
+
+  assert.equal(typeof opts, 'object', 'nanologger: opts should be type object')
+
+  this._name = name || ''
+  this._colors = Object.assign({}, defaultColors, opts.colors || {})
+
+  try {
+    this.logLevel = window.localStorage.getItem('logLevel') || 'info'
+  } catch (e) {
+    this.logLevel = 'info'
+  }
+
+  this._logLevel = levels[this.logLevel]
+}
+
+Nanologger.prototype.trace = function () {
+  var args = [ 'trace' ]
+  for (var i = 0, len = arguments.length; i < len; i++) args.push(arguments[i])
+  this._print.apply(this, args)
+}
+
+Nanologger.prototype.debug = function () {
+  var args = [ 'debug' ]
+  for (var i = 0, len = arguments.length; i < len; i++) args.push(arguments[i])
+  this._print.apply(this, args)
+}
+
+Nanologger.prototype.info = function () {
+  var args = [ 'info' ]
+  for (var i = 0, len = arguments.length; i < len; i++) args.push(arguments[i])
+  this._print.apply(this, args)
+}
+
+Nanologger.prototype.warn = function () {
+  var args = [ 'warn' ]
+  for (var i = 0, len = arguments.length; i < len; i++) args.push(arguments[i])
+  this._print.apply(this, args)
+}
+
+Nanologger.prototype.error = function () {
+  var args = [ 'error' ]
+  for (var i = 0, len = arguments.length; i < len; i++) args.push(arguments[i])
+  this._print.apply(this, args)
+}
+
+Nanologger.prototype.fatal = function () {
+  var args = [ 'fatal' ]
+  for (var i = 0, len = arguments.length; i < len; i++) args.push(arguments[i])
+  this._print.apply(this, args)
+}
+
+Nanologger.prototype._print = function (level) {
+  if (levels[level] < this._logLevel) return
+
+  var time = getTimeStamp()
+  var emoji = emojis[level]
+  var name = this._name || 'unknown'
+
+  var msgColor = (level === 'error' || level.fatal)
+    ? this._colors.red
+    : level === 'warn'
+      ? this._colors.yellow
+      : this._colors.green
+
+  var objs = []
+  var args = [ null ]
+  var msg = '%c%s ' + emoji + ' %c%s'
+
+  args.push(color(this._colors.brightBlack), time)
+  args.push(color(this._colors.magenta), name)
+
+  for (var i = 1, len = arguments.length; i < len; i++) {
+    var arg = arguments[i]
+    if (typeof arg === 'string') {
+      if (i === 1) {
+        // first string argument is in color
+        msg += ' %c%s'
+        args.push(color(msgColor))
+        args.push(arg)
+      } else if (/ms$/.test(arg)) {
+        // arguments finishing with 'ms', grey out
+        msg += ' %c%s'
+        args.push(color(this._colors.brightBlack))
+        args.push(arg)
+      } else {
+        // normal colors
+        msg += ' %c%s'
+        args.push(color(this._colors.white))
+        args.push(arg)
+      }
+    } else if (typeof arg === 'number') {
+      msg += ' %c%d'
+      args.push(color(this._colors.magenta))
+      args.push(arg)
+    } else {
+      objs.push(arg)
+    }
+  }
+
+  args[0] = msg
+  objs.forEach(function (obj) {
+    args.push(obj)
+  })
+
+  // In IE/Edge console functions don't inherit from Function.prototype
+  // so this is necessary to get all the args applied.
+  Function.prototype.apply.apply(console.log, [console, args])
+}
+
+function color (color) {
+  return 'color: ' + color + ';'
+}
+
+function getTimeStamp () {
+  var date = new Date()
+  var hours = pad(date.getHours().toString())
+  var minutes = pad(date.getMinutes().toString())
+  var seconds = pad(date.getSeconds().toString())
+  return hours + ':' + minutes + ':' + seconds
+}
+
+function pad (str) {
+  return str.length !== 2 ? 0 + str : str
+}
+
+},{"assert":84}],58:[function(require,module,exports){
+module.exports = LRU
+
+function LRU (opts) {
+  if (!(this instanceof LRU)) return new LRU(opts)
+  if (typeof opts === 'number') opts = {max: opts}
+  if (!opts) opts = {}
+  this.cache = {}
+  this.head = this.tail = null
+  this.length = 0
+  this.max = opts.max || 1000
+  this.maxAge = opts.maxAge || 0
+}
+
+Object.defineProperty(LRU.prototype, 'keys', {
+  get: function () { return Object.keys(this.cache) }
+})
+
+LRU.prototype.clear = function () {
+  this.cache = {}
+  this.head = this.tail = null
+  this.length = 0
+}
+
+LRU.prototype.remove = function (key) {
+  if (typeof key !== 'string') key = '' + key
+  if (!this.cache.hasOwnProperty(key)) return
+
+  var element = this.cache[key]
+  delete this.cache[key]
+  this._unlink(key, element.prev, element.next)
+  return element.value
+}
+
+LRU.prototype._unlink = function (key, prev, next) {
+  this.length--
+
+  if (this.length === 0) {
+    this.head = this.tail = null
+  } else {
+    if (this.head === key) {
+      this.head = prev
+      this.cache[this.head].next = null
+    } else if (this.tail === key) {
+      this.tail = next
+      this.cache[this.tail].prev = null
+    } else {
+      this.cache[prev].next = next
+      this.cache[next].prev = prev
+    }
+  }
+}
+
+LRU.prototype.peek = function (key) {
+  if (!this.cache.hasOwnProperty(key)) return
+
+  var element = this.cache[key]
+
+  if (!this._checkAge(key, element)) return
+  return element.value
+}
+
+LRU.prototype.set = function (key, value) {
+  if (typeof key !== 'string') key = '' + key
+
+  var element
+
+  if (this.cache.hasOwnProperty(key)) {
+    element = this.cache[key]
+    element.value = value
+    if (this.maxAge) element.modified = Date.now()
+
+    // If it's already the head, there's nothing more to do:
+    if (key === this.head) return value
+    this._unlink(key, element.prev, element.next)
+  } else {
+    element = {value: value, modified: 0, next: null, prev: null}
+    if (this.maxAge) element.modified = Date.now()
+    this.cache[key] = element
+
+    // Eviction is only possible if the key didn't already exist:
+    if (this.length === this.max) this.evict()
+  }
+
+  this.length++
+  element.next = null
+  element.prev = this.head
+
+  if (this.head) this.cache[this.head].next = key
+  this.head = key
+
+  if (!this.tail) this.tail = key
+  return value
+}
+
+LRU.prototype._checkAge = function (key, element) {
+  if (this.maxAge && (Date.now() - element.modified) > this.maxAge) {
+    this.remove(key)
+    return false
+  }
+  return true
+}
+
+LRU.prototype.get = function (key) {
+  if (typeof key !== 'string') key = '' + key
+  if (!this.cache.hasOwnProperty(key)) return
+
+  var element = this.cache[key]
+
+  if (!this._checkAge(key, element)) return
+
+  if (this.head !== key) {
+    if (key === this.tail) {
+      this.tail = element.next
+      this.cache[this.tail].prev = null
+    } else {
+      // Set prev.next -> element.next:
+      this.cache[element.prev].next = element.next
+    }
+
+    // Set element.next.prev -> element.prev:
+    this.cache[element.next].prev = element.prev
+
+    // Element is the new head
+    this.cache[this.head].next = key
+    element.prev = this.head
+    element.next = null
+    this.head = key
+  }
+
+  return element.value
+}
+
+LRU.prototype.evict = function () {
+  if (!this.tail) return
+  this.remove(this.tail)
+}
+
+},{}],59:[function(require,module,exports){
+var assert = require('nanoassert')
+var morph = require('./lib/morph')
+
+var TEXT_NODE = 3
+// var DEBUG = false
+
+module.exports = nanomorph
+
+// Morph one tree into another tree
+//
+// no parent
+//   -> same: diff and walk children
+//   -> not same: replace and return
+// old node doesn't exist
+//   -> insert new node
+// new node doesn't exist
+//   -> delete old node
+// nodes are not the same
+//   -> diff nodes and apply patch to old node
+// nodes are the same
+//   -> walk all child nodes and append to old node
+function nanomorph (oldTree, newTree, options) {
+  // if (DEBUG) {
+  //   console.log(
+  //   'nanomorph\nold\n  %s\nnew\n  %s',
+  //   oldTree && oldTree.outerHTML,
+  //   newTree && newTree.outerHTML
+  // )
+  // }
+  assert.equal(typeof oldTree, 'object', 'nanomorph: oldTree should be an object')
+  assert.equal(typeof newTree, 'object', 'nanomorph: newTree should be an object')
+
+  if (options && options.childrenOnly) {
+    updateChildren(newTree, oldTree)
+    return oldTree
+  }
+
+  assert.notEqual(
+    newTree.nodeType,
+    11,
+    'nanomorph: newTree should have one root node (which is not a DocumentFragment)'
+  )
+
+  return walk(newTree, oldTree)
+}
+
+// Walk and morph a dom tree
+function walk (newNode, oldNode) {
+  // if (DEBUG) {
+  //   console.log(
+  //   'walk\nold\n  %s\nnew\n  %s',
+  //   oldNode && oldNode.outerHTML,
+  //   newNode && newNode.outerHTML
+  // )
+  // }
+  if (!oldNode) {
+    return newNode
+  } else if (!newNode) {
+    return null
+  } else if (newNode.isSameNode && newNode.isSameNode(oldNode)) {
+    return oldNode
+  } else if (newNode.tagName !== oldNode.tagName || getComponentId(newNode) !== getComponentId(oldNode)) {
+    return newNode
+  } else {
+    morph(newNode, oldNode)
+    updateChildren(newNode, oldNode)
+    return oldNode
+  }
+}
+
+function getComponentId (node) {
+  return node.dataset ? node.dataset.nanomorphComponentId : undefined
+}
+
+// Update the children of elements
+// (obj, obj) -> null
+function updateChildren (newNode, oldNode) {
+  // if (DEBUG) {
+  //   console.log(
+  //   'updateChildren\nold\n  %s\nnew\n  %s',
+  //   oldNode && oldNode.outerHTML,
+  //   newNode && newNode.outerHTML
+  // )
+  // }
+  var oldChild, newChild, morphed, oldMatch
+
+  // The offset is only ever increased, and used for [i - offset] in the loop
+  var offset = 0
+
+  for (var i = 0; ; i++) {
+    oldChild = oldNode.childNodes[i]
+    newChild = newNode.childNodes[i - offset]
+    // if (DEBUG) {
+    //   console.log(
+    //   '===\n- old\n  %s\n- new\n  %s',
+    //   oldChild && oldChild.outerHTML,
+    //   newChild && newChild.outerHTML
+    // )
+    // }
+    // Both nodes are empty, do nothing
+    if (!oldChild && !newChild) {
+      break
+
+    // There is no new child, remove old
+    } else if (!newChild) {
+      oldNode.removeChild(oldChild)
+      i--
+
+    // There is no old child, add new
+    } else if (!oldChild) {
+      oldNode.appendChild(newChild)
+      offset++
+
+    // Both nodes are the same, morph
+    } else if (same(newChild, oldChild)) {
+      morphed = walk(newChild, oldChild)
+      if (morphed !== oldChild) {
+        oldNode.replaceChild(morphed, oldChild)
+        offset++
+      }
+
+    // Both nodes do not share an ID or a placeholder, try reorder
+    } else {
+      oldMatch = null
+
+      // Try and find a similar node somewhere in the tree
+      for (var j = i; j < oldNode.childNodes.length; j++) {
+        if (same(oldNode.childNodes[j], newChild)) {
+          oldMatch = oldNode.childNodes[j]
+          break
+        }
+      }
+
+      // If there was a node with the same ID or placeholder in the old list
+      if (oldMatch) {
+        morphed = walk(newChild, oldMatch)
+        if (morphed !== oldMatch) offset++
+        oldNode.insertBefore(morphed, oldChild)
+
+      // It's safe to morph two nodes in-place if neither has an ID
+      } else if (!newChild.id && !oldChild.id) {
+        morphed = walk(newChild, oldChild)
+        if (morphed !== oldChild) {
+          oldNode.replaceChild(morphed, oldChild)
+          offset++
+        }
+
+      // Insert the node at the index if we couldn't morph or find a matching node
+      } else {
+        oldNode.insertBefore(newChild, oldChild)
+        offset++
+      }
+    }
+  }
+}
+
+function same (a, b) {
+  if (a.id) return a.id === b.id
+  if (a.isSameNode) return a.isSameNode(b)
+  if (a.tagName !== b.tagName) return false
+  if (a.type === TEXT_NODE) return a.nodeValue === b.nodeValue
+  return false
+}
+
+},{"./lib/morph":61,"nanoassert":48}],60:[function(require,module,exports){
+module.exports = [
+  // attribute events (can be set with attributes)
+  'onclick',
+  'ondblclick',
+  'onmousedown',
+  'onmouseup',
+  'onmouseover',
+  'onmousemove',
+  'onmouseout',
+  'onmouseenter',
+  'onmouseleave',
+  'ontouchcancel',
+  'ontouchend',
+  'ontouchmove',
+  'ontouchstart',
+  'ondragstart',
+  'ondrag',
+  'ondragenter',
+  'ondragleave',
+  'ondragover',
+  'ondrop',
+  'ondragend',
+  'onkeydown',
+  'onkeypress',
+  'onkeyup',
+  'onunload',
+  'onabort',
+  'onerror',
+  'onresize',
+  'onscroll',
+  'onselect',
+  'onchange',
+  'onsubmit',
+  'onreset',
+  'onfocus',
+  'onblur',
+  'oninput',
+  'onanimationend',
+  'onanimationiteration',
+  'onanimationstart',
+  // other common events
+  'oncontextmenu',
+  'onfocusin',
+  'onfocusout'
+]
+
+},{}],61:[function(require,module,exports){
+var events = require('./events')
+var eventsLength = events.length
+
+var ELEMENT_NODE = 1
+var TEXT_NODE = 3
+var COMMENT_NODE = 8
+
+module.exports = morph
+
+// diff elements and apply the resulting patch to the old node
+// (obj, obj) -> null
+function morph (newNode, oldNode) {
+  var nodeType = newNode.nodeType
+  var nodeName = newNode.nodeName
+
+  if (nodeType === ELEMENT_NODE) {
+    copyAttrs(newNode, oldNode)
+  }
+
+  if (nodeType === TEXT_NODE || nodeType === COMMENT_NODE) {
+    if (oldNode.nodeValue !== newNode.nodeValue) {
+      oldNode.nodeValue = newNode.nodeValue
+    }
+  }
+
+  // Some DOM nodes are weird
+  // https://github.com/patrick-steele-idem/morphdom/blob/master/src/specialElHandlers.js
+  if (nodeName === 'INPUT') updateInput(newNode, oldNode)
+  else if (nodeName === 'OPTION') updateOption(newNode, oldNode)
+  else if (nodeName === 'TEXTAREA') updateTextarea(newNode, oldNode)
+
+  copyEvents(newNode, oldNode)
+}
+
+function copyAttrs (newNode, oldNode) {
+  var oldAttrs = oldNode.attributes
+  var newAttrs = newNode.attributes
+  var attrNamespaceURI = null
+  var attrValue = null
+  var fromValue = null
+  var attrName = null
+  var attr = null
+
+  for (var i = newAttrs.length - 1; i >= 0; --i) {
+    attr = newAttrs[i]
+    attrName = attr.name
+    attrNamespaceURI = attr.namespaceURI
+    attrValue = attr.value
+    if (attrNamespaceURI) {
+      attrName = attr.localName || attrName
+      fromValue = oldNode.getAttributeNS(attrNamespaceURI, attrName)
+      if (fromValue !== attrValue) {
+        oldNode.setAttributeNS(attrNamespaceURI, attrName, attrValue)
+      }
+    } else {
+      if (!oldNode.hasAttribute(attrName)) {
+        oldNode.setAttribute(attrName, attrValue)
+      } else {
+        fromValue = oldNode.getAttribute(attrName)
+        if (fromValue !== attrValue) {
+          // apparently values are always cast to strings, ah well
+          if (attrValue === 'null' || attrValue === 'undefined') {
+            oldNode.removeAttribute(attrName)
+          } else {
+            oldNode.setAttribute(attrName, attrValue)
+          }
+        }
+      }
+    }
+  }
+
+  // Remove any extra attributes found on the original DOM element that
+  // weren't found on the target element.
+  for (var j = oldAttrs.length - 1; j >= 0; --j) {
+    attr = oldAttrs[j]
+    if (attr.specified !== false) {
+      attrName = attr.name
+      attrNamespaceURI = attr.namespaceURI
+
+      if (attrNamespaceURI) {
+        attrName = attr.localName || attrName
+        if (!newNode.hasAttributeNS(attrNamespaceURI, attrName)) {
+          oldNode.removeAttributeNS(attrNamespaceURI, attrName)
+        }
+      } else {
+        if (!newNode.hasAttributeNS(null, attrName)) {
+          oldNode.removeAttribute(attrName)
+        }
+      }
+    }
+  }
+}
+
+function copyEvents (newNode, oldNode) {
+  for (var i = 0; i < eventsLength; i++) {
+    var ev = events[i]
+    if (newNode[ev]) {           // if new element has a whitelisted attribute
+      oldNode[ev] = newNode[ev]  // update existing element
+    } else if (oldNode[ev]) {    // if existing element has it and new one doesnt
+      oldNode[ev] = undefined    // remove it from existing element
+    }
+  }
+}
+
+function updateOption (newNode, oldNode) {
+  updateAttribute(newNode, oldNode, 'selected')
+}
+
+// The "value" attribute is special for the <input> element since it sets the
+// initial value. Changing the "value" attribute without changing the "value"
+// property will have no effect since it is only used to the set the initial
+// value. Similar for the "checked" attribute, and "disabled".
+function updateInput (newNode, oldNode) {
+  var newValue = newNode.value
+  var oldValue = oldNode.value
+
+  updateAttribute(newNode, oldNode, 'checked')
+  updateAttribute(newNode, oldNode, 'disabled')
+
+  // The "indeterminate" property can not be set using an HTML attribute.
+  // See https://developer.mozilla.org/en-US/docs/Web/HTML/Element/input/checkbox
+  if (newNode.indeterminate !== oldNode.indeterminate) {
+    oldNode.indeterminate = newNode.indeterminate
+  }
+
+  // Persist file value since file inputs can't be changed programatically
+  if (oldNode.type === 'file') return
+
+  if (newValue !== oldValue) {
+    oldNode.setAttribute('value', newValue)
+    oldNode.value = newValue
+  }
+
+  if (newValue === 'null') {
+    oldNode.value = ''
+    oldNode.removeAttribute('value')
+  }
+
+  if (!newNode.hasAttributeNS(null, 'value')) {
+    oldNode.removeAttribute('value')
+  } else if (oldNode.type === 'range') {
+    // this is so elements like slider move their UI thingy
+    oldNode.value = newValue
+  }
+}
+
+function updateTextarea (newNode, oldNode) {
+  var newValue = newNode.value
+  if (newValue !== oldNode.value) {
+    oldNode.value = newValue
+  }
+
+  if (oldNode.firstChild && oldNode.firstChild.nodeValue !== newValue) {
+    // Needed for IE. Apparently IE sets the placeholder as the
+    // node value and vise versa. This ignores an empty update.
+    if (newValue === '' && oldNode.firstChild.nodeValue === oldNode.placeholder) {
+      return
+    }
+
+    oldNode.firstChild.nodeValue = newValue
+  }
+}
+
+function updateAttribute (newNode, oldNode, name) {
+  if (newNode[name] !== oldNode[name]) {
+    oldNode[name] = newNode[name]
+    if (newNode[name]) {
+      oldNode.setAttribute(name, '')
+    } else {
+      oldNode.removeAttribute(name)
+    }
+  }
+}
+
+},{"./events":60}],62:[function(require,module,exports){
+var reg = /([^?=&]+)(=([^&]*))?/g
+var assert = require('assert')
+
+module.exports = qs
+
+function qs (url) {
+  assert.equal(typeof url, 'string', 'nanoquery: url should be type string')
+
+  var obj = {}
+  url.replace(/^.*\?/, '').replace(reg, function (a0, a1, a2, a3) {
+    var value = decodeURIComponent(a3)
+    var key = decodeURIComponent(a1)
+    if (obj.hasOwnProperty(key)) {
+      if (Array.isArray(obj[key])) obj[key].push(value)
+      else obj[key] = [obj[key], value]
+    } else {
+      obj[key] = value
+    }
+  })
+
+  return obj
+}
+
+},{"assert":48}],63:[function(require,module,exports){
+'use strict'
+
+var assert = require('assert')
+
+module.exports = nanoraf
+
+// Only call RAF when needed
+// (fn, fn?) -> fn
+function nanoraf (render, raf) {
+  assert.equal(typeof render, 'function', 'nanoraf: render should be a function')
+  assert.ok(typeof raf === 'function' || typeof raf === 'undefined', 'nanoraf: raf should be a function or undefined')
+
+  if (!raf) raf = window.requestAnimationFrame
+  var redrawScheduled = false
+  var args = null
+
+  return function frame () {
+    if (args === null && !redrawScheduled) {
+      redrawScheduled = true
+
+      raf(function redraw () {
+        redrawScheduled = false
+
+        var length = args.length
+        var _args = new Array(length)
+        for (var i = 0; i < length; i++) _args[i] = args[i]
+
+        render.apply(render, _args)
+        args = null
+      })
+    }
+
+    args = arguments
+  }
+}
+
+},{"assert":48}],64:[function(require,module,exports){
+var assert = require('assert')
+var wayfarer = require('wayfarer')
+
+// electron support
+var isLocalFile = (/file:\/\//.test(
+  typeof window === 'object' &&
+  window.location &&
+  window.location.origin
+))
+
+/* eslint-disable no-useless-escape */
+var electron = '^(file:\/\/|\/)(.*\.html?\/?)?'
+var protocol = '^(http(s)?(:\/\/))?(www\.)?'
+var domain = '[a-zA-Z0-9-_\.]+(:[0-9]{1,5})?(\/{1})?'
+var qs = '[\?].*$'
+/* eslint-enable no-useless-escape */
+
+var stripElectron = new RegExp(electron)
+var prefix = new RegExp(protocol + domain)
+var normalize = new RegExp('#')
+var suffix = new RegExp(qs)
+
+module.exports = Nanorouter
+
+function Nanorouter (opts) {
+  if (!(this instanceof Nanorouter)) return new Nanorouter(opts)
+  opts = opts || {}
+  this.router = wayfarer(opts.default || '/404')
+}
+
+Nanorouter.prototype.on = function (routename, listener) {
+  assert.equal(typeof routename, 'string')
+  routename = routename.replace(/^[#/]/, '')
+  this.router.on(routename, listener)
+}
+
+Nanorouter.prototype.emit = function (routename) {
+  assert.equal(typeof routename, 'string')
+  routename = pathname(routename, isLocalFile)
+  return this.router.emit(routename)
+}
+
+Nanorouter.prototype.match = function (routename) {
+  assert.equal(typeof routename, 'string')
+  routename = pathname(routename, isLocalFile)
+  return this.router.match(routename)
+}
+
+// replace everything in a route but the pathname and hash
+function pathname (routename, isElectron) {
+  if (isElectron) routename = routename.replace(stripElectron, '')
+  else routename = routename.replace(prefix, '')
+  return decodeURI(routename.replace(suffix, '').replace(normalize, '/'))
+}
+
+},{"assert":48,"wayfarer":75}],65:[function(require,module,exports){
+var assert = require('assert')
+
+var hasWindow = typeof window !== 'undefined'
+
+function createScheduler () {
+  var scheduler
+  if (hasWindow) {
+    if (!window._nanoScheduler) window._nanoScheduler = new NanoScheduler(true)
+    scheduler = window._nanoScheduler
+  } else {
+    scheduler = new NanoScheduler()
+  }
+  return scheduler
+}
+
+function NanoScheduler (hasWindow) {
+  this.hasWindow = hasWindow
+  this.hasIdle = this.hasWindow && window.requestIdleCallback
+  this.method = this.hasIdle ? window.requestIdleCallback.bind(window) : this.setTimeout
+  this.scheduled = false
+  this.queue = []
+}
+
+NanoScheduler.prototype.push = function (cb) {
+  assert.equal(typeof cb, 'function', 'nanoscheduler.push: cb should be type function')
+
+  this.queue.push(cb)
+  this.schedule()
+}
+
+NanoScheduler.prototype.schedule = function () {
+  if (this.scheduled) return
+
+  this.scheduled = true
+  var self = this
+  this.method(function (idleDeadline) {
+    var cb
+    while (self.queue.length && idleDeadline.timeRemaining() > 0) {
+      cb = self.queue.shift()
+      cb(idleDeadline)
+    }
+    self.scheduled = false
+    if (self.queue.length) self.schedule()
+  })
+}
+
+NanoScheduler.prototype.setTimeout = function (cb) {
+  setTimeout(cb, 0, {
+    timeRemaining: function () {
+      return 1
     }
   })
 }
 
-function zeroPad (number) {
-  const padding = number < 10 ? '0' : ''
-  return padding + number
+module.exports = createScheduler
+
+},{"assert":48}],66:[function(require,module,exports){
+var scheduler = require('nanoscheduler')()
+var assert = require('assert')
+
+var perf
+nanotiming.disabled = true
+try {
+  perf = window.performance
+  nanotiming.disabled = window.localStorage.DISABLE_NANOTIMING === 'true' || !perf.mark
+} catch (e) { }
+
+module.exports = nanotiming
+
+function nanotiming (name) {
+  assert.equal(typeof name, 'string', 'nanotiming: name should be type string')
+
+  if (nanotiming.disabled) return noop
+
+  var uuid = (perf.now() * 10000).toFixed() % Number.MAX_SAFE_INTEGER
+  var startName = 'start-' + uuid + '-' + name
+  perf.mark(startName)
+
+  function end (cb) {
+    var endName = 'end-' + uuid + '-' + name
+    perf.mark(endName)
+
+    scheduler.push(function () {
+      var err = null
+      try {
+        var measureName = name + ' [' + uuid + ']'
+        perf.measure(measureName, startName, endName)
+        perf.clearMarks(startName)
+        perf.clearMarks(endName)
+      } catch (e) { err = e }
+      if (cb) cb(err, name)
+    })
+  }
+
+  end.uuid = uuid
+  return end
 }
 
-function getOptions (index) {
-  const colors = [[255, 0, 0], [0, 255, 0], [0, 0, 255]]
-
-  const color = colors[index % colors.length]
-
-  return {
-    backgroundColor: `rgba(${color[0]}, ${color[1]}, ${color[2]}, 0.1)`,
-    borderColor: `rgba(${color[0]}, ${color[1]}, ${color[2]}, 0.9)`
+function noop (cb) {
+  if (cb) {
+    scheduler.push(function () {
+      cb(new Error('nanotiming: performance API unavailable'))
+    })
   }
 }
 
-function clearChart () {
-  if (!chart) return
+},{"assert":48,"nanoscheduler":65}],67:[function(require,module,exports){
+var assert = require('assert')
 
-  chart.data.datasets = []
-  chart.update()
+module.exports = objectChangeCallsite
+
+function objectChangeCallsite (target, callback) {
+  assert.equal(typeof target, 'object', 'object-change-callsite: target should be type object')
+  assert.equal(typeof callback, 'function', 'object-change-callsite: callback should be type function')
+
+  return new Proxy(target, {
+    set: function (obj, prop, value) {
+      var err = new Error()
+      var trace = strip(err.stack)
+      callback(prop, value, trace)
+      obj[prop] = value
+      return true
+    },
+    deleteProperty: function (target, prop) {
+      var err = new Error()
+      var trace = strip(err.stack)
+      callback(prop, undefined, trace)
+      if (prop in target) {
+        delete target[prop]
+        return true
+      }
+      return false
+    }
+  })
 }
 
-function renderChart (data, render = true) {
-  if (!chart) initChart()
+function strip (str) {
+  var arr = str.split('\n')
+  arr = arr.length > 2 ? arr.slice(2) : arr
+  arr[0] = arr[0].replace(/^ {4}at /, '')
+  return '\n' + arr.join('\n')
+}
 
-  const datapoints = massageData(data)
+},{"assert":84}],68:[function(require,module,exports){
+var scheduler = require('nanoscheduler')()
+var assert = require('assert')
 
-  for (const [label, value] of Object.entries(datapoints)) {
-    // Attempt to find an existing dataset
-    let found = false
-    for (let i = 0; i < chart.data.datasets.length; i++) {
-      const dataset = chart.data.datasets[i]
-      if (dataset.label === label) {
-        found = true
-        dataset.data.push(datapoints[label])
-        break
+var entryTypes = [
+  'frame',
+  'measure',
+  'navigation',
+  'resource',
+  'longtask'
+]
+
+module.exports = onPerformance
+
+function onPerformance (cb) {
+  assert.equal(typeof cb, 'function', 'on-performance: cb should be type function')
+
+  var PerformanceObserver = typeof window !== 'undefined' && window.PerformanceObserver
+  if (!PerformanceObserver) return
+
+  // Enable singleton.
+  if (window._onperformance) {
+    window._onperformance.push(cb)
+    return stop
+  }
+
+  window._onperformance = [cb]
+  var observer = new PerformanceObserver(parseEntries)
+  setTimeout(function () {
+    parseEntries(window.performance)
+    observer.observe({ entryTypes: entryTypes })
+  }, 0)
+
+  return stop
+
+  function stop () {
+    window._onperformance.splice(window._onperformance.indexOf(cb), 1)
+  }
+
+  function parseEntries (list) {
+    list.getEntries().forEach(function (entry) {
+      scheduler.push(function () {
+        clear(entry)
+        window._onperformance.forEach(function (cb) {
+          cb(entry)
+        })
+      })
+    })
+  }
+
+  // Navigation, longtask and frame don't have a clear method (yet)
+  // Resource timings can only be cleared in bulk
+  // see: https://developer.mozilla.org/en-US/docs/Web/API/Performance/clearMeasures
+  function clear (entry) {
+    var type = entry.entryType
+    if (type === 'measure') window.performance.clearMeasures(entry.name)
+    else if (type === 'resource') window.performance.clearResourceTimings()
+  }
+}
+
+},{"assert":48,"nanoscheduler":65}],69:[function(require,module,exports){
+module.exports = plucker
+
+function plucker(path, object) {
+  return arguments.length >= 2
+    ? pluck(path)(object)
+    : pluck(path)
+}
+
+function pluck(path) {
+  path = typeof path === 'string'
+    ? String(path).trim().split('.')
+    : path
+
+  if (path.length < 2) {
+    path = path[0]
+    return pluckSingle
+  } else {
+    var l = path.length
+    return pluckPath
+  }
+
+  function pluckSingle(object) {
+    return object[path]
+  }
+
+  function pluckPath(object) {
+    for (var i = 0; i < l; i++) {
+      if (typeof object === 'undefined') break
+
+      object = object[path[i]]
+    }
+
+    return object
+  }
+}
+
+},{}],70:[function(require,module,exports){
+module.exports = prettierBytes
+
+function prettierBytes (num) {
+  if (typeof num !== 'number' || isNaN(num)) {
+    throw new TypeError('Expected a number, got ' + typeof num)
+  }
+
+  var neg = num < 0
+  var units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
+
+  if (neg) {
+    num = -num
+  }
+
+  if (num < 1) {
+    return (neg ? '-' : '') + num + ' B'
+  }
+
+  var exponent = Math.min(Math.floor(Math.log(num) / Math.log(1000)), units.length - 1)
+  num = Number(num / Math.pow(1000, exponent))
+  var unit = units[exponent]
+
+  if (num >= 10 || num % 1 === 0) {
+    // Do not show decimals when the number is two-digit, or if the number has no
+    // decimal component.
+    return (neg ? '-' : '') + num.toFixed(0) + ' ' + unit
+  } else {
+    return (neg ? '-' : '') + num.toFixed(1) + ' ' + unit
+  }
+}
+
+},{}],71:[function(require,module,exports){
+'use strict'
+
+/**
+ * Remove a range of items from an array
+ *
+ * @function removeItems
+ * @param {Array<*>} arr The target array
+ * @param {number} startIdx The index to begin removing from (inclusive)
+ * @param {number} removeCount How many items to remove
+ */
+module.exports = function removeItems (arr, startIdx, removeCount) {
+  var i, length = arr.length
+
+  if (startIdx >= length || removeCount === 0) {
+    return
+  }
+
+  removeCount = (startIdx + removeCount > length ? length - startIdx : removeCount)
+
+  var len = length - removeCount
+
+  for (i = startIdx; i < len; ++i) {
+    arr[i] = arr[i + removeCount]
+  }
+
+  arr.length = len
+}
+
+},{}],72:[function(require,module,exports){
+module.exports = scrollToAnchor
+
+function scrollToAnchor (anchor, options) {
+  if (anchor) {
+    try {
+      var el = document.querySelector(anchor)
+      if (el) el.scrollIntoView(options)
+    } catch (e) {}
+  }
+}
+
+},{}],73:[function(require,module,exports){
+var fastSafeStringify = require('fast-safe-stringify')
+var copy = require('clipboard-copy')
+
+function tryStringify (obj) {
+  try {
+    return JSON.stringify(obj)
+  } catch (e) {}
+}
+
+function stateCopy (obj) {
+  var str = tryStringify(obj) || fastSafeStringify(obj)
+  copy(str)
+}
+
+module.exports = stateCopy
+
+},{"clipboard-copy":42,"fast-safe-stringify":44}],74:[function(require,module,exports){
+/* eslint-disable node/no-deprecated-api */
+var assert = require('assert')
+
+module.exports = getAllRoutes
+
+var transform = function (trie, previous) {
+  var prev = previous || '/'
+  var routes = {}
+  var nodes = trie.nodes
+  Object.keys(nodes).forEach(function (key) {
+    var path = (prev === '/' ? prev : prev + '/') + (key === '$$' ? ':' + trie.name : key)
+    var cb = nodes[key].cb
+    if (cb !== undefined) {
+      routes[path] = cb
+    }
+    if (Object.keys(nodes[key].nodes).length !== 0) {
+      var obj = transform(nodes[key], path)
+      Object.keys(obj).forEach(function (r) {
+        routes[r] = obj[r]
+      })
+    }
+  })
+  return routes
+}
+
+// walk a wayfarer trie
+// (obj, fn) -> null
+function getAllRoutes (router) {
+  assert.equal(typeof router, 'function', 'wayfarer.getAllRoutes: router should be an function')
+
+  var trie = router._trie
+  assert.equal(typeof trie, 'object', 'wayfarer.getAllRoutes: trie should be an object')
+
+  var tree = trie.trie
+  return transform(tree)
+}
+
+},{"assert":48}],75:[function(require,module,exports){
+/* eslint-disable node/no-deprecated-api */
+var assert = require('assert')
+var trie = require('./trie')
+
+module.exports = Wayfarer
+
+// create a router
+// str -> obj
+function Wayfarer (dft) {
+  if (!(this instanceof Wayfarer)) return new Wayfarer(dft)
+
+  var _default = (dft || '').replace(/^\//, '')
+  var _trie = trie()
+
+  emit._trie = _trie
+  emit.on = on
+  emit.emit = emit
+  emit.match = match
+  emit._wayfarer = true
+
+  return emit
+
+  // define a route
+  // (str, fn) -> obj
+  function on (route, cb) {
+    assert.equal(typeof route, 'string')
+    assert.equal(typeof cb, 'function')
+
+    route = route || '/'
+
+    if (cb._wayfarer && cb._trie) {
+      _trie.mount(route, cb._trie.trie)
+    } else {
+      var node = _trie.create(route)
+      node.cb = cb
+      node.route = route
+    }
+
+    return emit
+  }
+
+  // match and call a route
+  // (str, obj?) -> null
+  function emit (route) {
+    var matched = match(route)
+
+    var args = new Array(arguments.length)
+    args[0] = matched.params
+    for (var i = 1; i < args.length; i++) {
+      args[i] = arguments[i]
+    }
+
+    return matched.cb.apply(matched.cb, args)
+  }
+
+  function match (route) {
+    assert.notEqual(route, undefined, "'route' must be defined")
+
+    var matched = _trie.match(route)
+    if (matched && matched.cb) return new Route(matched)
+
+    var dft = _trie.match(_default)
+    if (dft && dft.cb) return new Route(dft)
+
+    throw new Error("route '" + route + "' did not match")
+  }
+
+  function Route (matched) {
+    this.cb = matched.cb
+    this.route = matched.route
+    this.params = matched.params
+  }
+}
+
+},{"./trie":76,"assert":48}],76:[function(require,module,exports){
+/* eslint-disable node/no-deprecated-api */
+var assert = require('assert')
+
+module.exports = Trie
+
+// create a new trie
+// null -> obj
+function Trie () {
+  if (!(this instanceof Trie)) return new Trie()
+  this.trie = { nodes: {} }
+}
+
+// create a node on the trie at route
+// and return a node
+// str -> obj
+Trie.prototype.create = function (route) {
+  assert.equal(typeof route, 'string', 'route should be a string')
+  // strip leading '/' and split routes
+  var routes = route.replace(/^\//, '').split('/')
+
+  function createNode (index, trie) {
+    var thisRoute = (has(routes, index) && routes[index])
+    if (thisRoute === false) return trie
+
+    var node = null
+    if (/^:|^\*/.test(thisRoute)) {
+      // if node is a name match, set name and append to ':' node
+      if (!has(trie.nodes, '$$')) {
+        node = { nodes: {} }
+        trie.nodes.$$ = node
+      } else {
+        node = trie.nodes.$$
+      }
+
+      if (thisRoute[0] === '*') {
+        trie.wildcard = true
+      }
+
+      trie.name = thisRoute.replace(/^:|^\*/, '')
+    } else if (!has(trie.nodes, thisRoute)) {
+      node = { nodes: {} }
+      trie.nodes[thisRoute] = node
+    } else {
+      node = trie.nodes[thisRoute]
+    }
+
+    // we must recurse deeper
+    return createNode(index + 1, node)
+  }
+
+  return createNode(0, this.trie)
+}
+
+// match a route on the trie
+// and return the node
+// str -> obj
+Trie.prototype.match = function (route) {
+  assert.equal(typeof route, 'string', 'route should be a string')
+
+  var routes = route.replace(/^\//, '').split('/')
+  var params = {}
+
+  function search (index, trie) {
+    // either there's no match, or we're done searching
+    if (trie === undefined) return undefined
+    var thisRoute = routes[index]
+    if (thisRoute === undefined) return trie
+
+    if (has(trie.nodes, thisRoute)) {
+      // match regular routes first
+      return search(index + 1, trie.nodes[thisRoute])
+    } else if (trie.name) {
+      // match named routes
+      try {
+        params[trie.name] = decodeURIComponent(thisRoute)
+      } catch (e) {
+        return search(index, undefined)
+      }
+      return search(index + 1, trie.nodes.$$)
+    } else if (trie.wildcard) {
+      // match wildcards
+      try {
+        params.wildcard = decodeURIComponent(routes.slice(index).join('/'))
+      } catch (e) {
+        return search(index, undefined)
+      }
+      // return early, or else search may keep recursing through the wildcard
+      return trie.nodes.$$
+    } else {
+      // no matches found
+      return search(index + 1)
+    }
+  }
+
+  var node = search(0, this.trie)
+
+  if (!node) return undefined
+  node = Object.assign({}, node)
+  node.params = params
+  return node
+}
+
+// mount a trie onto a node at route
+// (str, obj) -> null
+Trie.prototype.mount = function (route, trie) {
+  assert.equal(typeof route, 'string', 'route should be a string')
+  assert.equal(typeof trie, 'object', 'trie should be a object')
+
+  var split = route.replace(/^\//, '').split('/')
+  var node = null
+  var key = null
+
+  if (split.length === 1) {
+    key = split[0]
+    node = this.create(key)
+  } else {
+    var head = split.join('/')
+    key = split[0]
+    node = this.create(head)
+  }
+
+  Object.assign(node.nodes, trie.nodes)
+  if (trie.name) node.name = trie.name
+
+  // delegate properties from '/' to the new node
+  // '/' cannot be reached once mounted
+  if (node.nodes['']) {
+    Object.keys(node.nodes['']).forEach(function (key) {
+      if (key === 'nodes') return
+      node[key] = node.nodes[''][key]
+    })
+    Object.assign(node.nodes, node.nodes[''].nodes)
+    delete node.nodes[''].nodes
+  }
+}
+
+function has (object, property) {
+  return Object.prototype.hasOwnProperty.call(object, property)
+}
+
+},{"assert":48}],77:[function(require,module,exports){
+const choo = require('choo')
+const devtools = require('choo-devtools')
+const mainView = require('./views/main')
+const stokerStore = require('./stores/stoker')
+const chartStore = require('./stores/chart')
+const busStore = require('./stores/bus')
+
+const app = choo()
+app.use(devtools())
+app.use(busStore)
+app.use(stokerStore)
+app.use(chartStore)
+app.route('/', mainView)
+app.mount('#app')
+
+},{"./stores/bus":78,"./stores/chart":79,"./stores/stoker":80,"./views/main":82,"choo":41,"choo-devtools":28}],78:[function(require,module,exports){
+const axios = require('axios').default
+const { PORT } = require('../../variables.json')
+
+function busStore (state, emitter) {
+  function setupWS (port, bus) {
+    const ws = new WebSocket('ws://' + (window.location.hostname ? window.location.hostname : 'localhost') + ':' + port)
+    ws.onopen = () => {
+      console.log('ws connected')
+      bus.on('store:get', (field) => {
+        ws.send(JSON.stringify({ event: 'store:get', data: field }))
+      })
+
+      // Now connection is open, get info
+      bus.emit('store:get', 'stokerIP')
+    }
+
+    ws.onmessage = ({ data }) => {
+      data = JSON.parse(data)
+      bus.emit(data.event, data.data)
+    }
+  }
+
+  function getWSPort () {
+    axios.get(`http://${window.location.hostname ? window.location.hostname : 'localhost'}:${PORT}/ws-port`)
+      .then((response) => {
+        const port = response.data
+        setupWS(port, emitter)
+      })
+  }
+
+  getWSPort()
+}
+
+module.exports = busStore
+
+},{"../../variables.json":83,"axios":1}],79:[function(require,module,exports){
+const Chart = require('chart.js')
+
+function chartStore (_, emitter) {
+  let chart = null
+
+  function initChart () {
+    const canvas = document.querySelector('canvas')
+    const ctx = canvas.getContext('2d')
+    chart = new Chart(ctx, {
+      type: 'line',
+      options: {
+        tooltips: {
+          mode: 'index',
+          intersect: false
+        },
+        hover: {
+          mode: 'nearest',
+          intersect: true
+        },
+        scales: {
+          xAxes: [{
+            type: 'time'
+          }]
+        }
+      }
+    })
+  }
+
+  function getOptions (index) {
+    const colors = [[255, 0, 0], [0, 255, 0], [0, 0, 255]]
+
+    const color = colors[index % colors.length]
+
+    return {
+      backgroundColor: `rgba(${color[0]}, ${color[1]}, ${color[2]}, 0.1)`,
+      borderColor: `rgba(${color[0]}, ${color[1]}, ${color[2]}, 0.9)`
+    }
+  }
+
+  emitter.on('chart:clear', () => {
+    if (!chart) return
+
+    chart.data.datasets = []
+    chart.update()
+  })
+
+  emitter.on('chart:render', (data, render = true) => {
+    if (!chart) initChart()
+
+    const datapoints = massageData(data)
+
+    for (const [label, value] of Object.entries(datapoints)) {
+      // Attempt to find an existing dataset
+      let found = false
+      for (let i = 0; i < chart.data.datasets.length; i++) {
+        const dataset = chart.data.datasets[i]
+        if (dataset.label === label) {
+          found = true
+          dataset.data.push(datapoints[label])
+          break
+        }
+      }
+
+      if (!found) {
+        const opt = Object.assign({}, {
+          label,
+          data: [value],
+          fill: false,
+          parsing: false
+        }, getOptions(chart.data.datasets.length))
+
+        chart.data.datasets.push(opt)
       }
     }
 
-    if (!found) {
-      const opt = Object.assign({}, {
-        label,
-        data: [value],
-        fill: false,
-        parsing: false
-      }, getOptions(chart.data.datasets.length))
-
-      chart.data.datasets.push(opt)
+    if (render) {
+      chart.update()
     }
-  }
+  })
 
-  if (render) {
-    chart.update()
+  function massageData (data) {
+    if (data.stoker.sensors) {
+      return data.stoker.sensors.reduce((prev, sensor) => {
+        prev[sensor.name] = { x: new Date(data.timestamp), y: sensor.tempCurrent }
+        return prev
+      }, {})
+    }
+
+    return []
   }
 }
 
-function massageData (data) {
-  if (data.stoker.sensors) {
-    return data.stoker.sensors.reduce((prev, sensor) => {
-      prev[sensor.name] = { x: new Date(data.timestamp), y: sensor.tempCurrent }
-      return prev
-    }, {})
+module.exports = chartStore
+
+},{"chart.js":27}],80:[function(require,module,exports){
+const axios = require('axios').default
+
+const { PORT } = require('../../variables.json')
+
+function stokerStore (state, emitter) {
+  // Blank state
+  state = Object.assign(state, {
+    data: [],
+    stokerIP: null,
+    errors: [],
+    sessions: [],
+    sessionID: null
+  })
+
+  state.events.SESSION_SET = 'session:set'
+
+  emitter.once('store:get:stokerIP', (ip) => {
+    if (ip) {
+      state.stokerIP = ip
+      emitter.emit(state.events.RENDER)
+    }
+  })
+
+  emitter.on('stoker:not-found', () => {
+    state.errors = []
+    state.errors.push(`Stoker cannot be found at ${state.stokerIP}`)
+    emitter.emit(state.events.RENDER)
+  })
+
+  // Update state w/ new data
+  emitter.on('data', (data) => {
+    emitter.emit('chart:render', data)
+    state.data.push(data)
+    emitter.emit(state.events.RENDER)
+  })
+
+  emitter.on(state.events.SESSION_SET, (id) => {
+    if (id === undefined) throw Error('no id provided to `session:set`')
+
+    state.sessionID = id
+    emitter.emit('chart:clear')
+
+    axios.get(`http://${window.location.hostname ? window.location.hostname : 'localhost'}:${PORT}/data/${id}`)
+      .then((response) => {
+        const session = response.data
+        const data = session.data
+        for (let i = 0; i < data.length; i++) {
+          const datapoint = data[i]
+          const update = i === data.length - 1
+          emitter.emit('chart:render', datapoint, update)
+        }
+      })
+  })
+
+  function getSessions () {
+    return axios.get(`http://${window.location.hostname ? window.location.hostname : 'localhost'}:${PORT}/sessions`)
+      .then((response) => {
+        state.sessions = response.data
+      })
   }
 
-  return []
+  getSessions().then(() => {
+    emitter.emit(state.events.SESSION_SET, state.sessions.length - 1)
+    emitter.emit(state.events.RENDER)
+  })
 }
 
-const info = document.createElement('div')
-document.body.appendChild(info)
+module.exports = stokerStore
 
-const state = {
-  data: [],
-  stokerIP: null,
-  errors: [],
-  sessions: [],
-  sessionID: null
-}
+},{"../../variables.json":83,"axios":1}],81:[function(require,module,exports){
+const html = require('choo/html')
 
-function render (state) {
-  let output = ''
-  for (const error of state.errors) {
-    output += '<div class="error">' + error + '</div>'
-  }
-
-  // Sessions
-  output += `<div class="session-manager">
-    <label for="session">Session</label>
-    <select id="session">`
-  for (let i = 0; i < state.sessions.length; i++) {
-    const session = state.sessions[i]
-    output += `<option value="${i}"${i === state.sessionID ? ' selected' : ''}>${session.name}</option>`
-  }
-  output += `</select>
-    </div>`
-
-  output += renderLastest(state)
-  info.innerHTML = output
+function zeroPad (number) {
+  const padding = number < 10 ? '0' : ''
+  return padding + number
 }
 
 function renderLastest (state) {
@@ -23558,139 +27430,2398 @@ function renderLastest (state) {
 
   if (!recentData) return ''
 
-  let output = '<table>'
-
   const time = new Date(recentData.timestamp)
-  output += `<tr><td colspan=2>Last Update ${time.getHours() + ':' + zeroPad(time.getMinutes()) + ':' + zeroPad(time.getSeconds())}</td></tr>`
-  output += '<tr><td colspan=2><b>Sensors</b></td></tr>'
-  if (recentData.stoker.sensors) {
-    for (const temp of recentData.stoker.sensors) {
-      output += `<tr><td>${temp.name}</td><td>${temp.tempCurrent}ºF</td></tr>`
-    }
+
+  const sensors = recentData.stoker.sensors || []
+  let sensorEls
+  if (sensors.length) {
+    sensorEls = sensors.map((temp) =>
+      html`<tr><td>${temp.name}</td><td>${temp.tempCurrent}ºF</td></tr>`)
   } else {
-    output += '<tr><td colspan="100%">No Sensors Found</td></tr>'
+    sensorEls = html`<tr><td colspan="100%">No Sensors Found</td></tr>`
   }
 
-  output += '<tr><td colspan=2><b>Blowers</b></td></tr>'
-  if (recentData.stoker.blowers) {
-    for (const blower of recentData.stoker.blowers) {
-      output += `<tr><td>${blower.name}</td><td>${(blower.on) ? 'On' : 'Off'}</td></tr>`
-    }
+  const blowers = recentData.stoker.blowers || []
+  let blowerEls
+  if (blowers.length) {
+    blowerEls = blowers.map((blower) =>
+      html`<tr><td>${blower.name}</td><td>${(blower.on) ? 'On' : 'Off'}</td></tr>`)
   } else {
-    output += '<tr><td colspan="100%">No Blowers Found</td></tr>'
+    blowerEls = html`<tr><td colspan="100%">No Blowers Found</td></tr>`
   }
 
-  output += '</table>'
-  return output
+  return html`
+<table>
+  <tr><td colspan=2>Last Update ${time.getHours() + ':' + zeroPad(time.getMinutes()) + ':' + zeroPad(time.getSeconds())}</td></tr>
+  <tr><td colspan=2><b>Sensors</b></td></tr>
+  ${sensorEls}
+  <tr><td colspan=2><b>Blowers</b></td></tr>
+  ${blowerEls}
+</table>`
 }
 
-const appBus = new EventEmitter()
+module.exports = renderLastest
 
-function initState () {
-  // Stoker IP
-  appBus.once('store:get:stokerIP', (event, ip) => {
-    if (ip) {
-      state.stokerIP = ip
-      render(state)
-    }
-  })
-  appBus.on('stoker:not-found', () => {
-    state.errors = []
-    state.errors.push(`Stoker cannot be found at ${state.stokerIP}`)
-    render(state)
-  })
+},{"choo/html":40}],82:[function(require,module,exports){
+const html = require('choo/html')
+const renderLatest = require('./latest-stats')
 
-  // Update state w/ new data
-  appBus.on('data', (data) => {
-    renderChart(data)
-    state.data.push(data)
-    render(state)
-  })
+function mainView (state, emit) {
+  const latestStats = renderLatest(state)
 
-  getSessions().then(() => {
-    state.sessionID = state.sessions.length - 1
-    render(state)
-    getSession('current')
-  })
+  return html`
+<div>
+  <div class="errors">
+    ${state.errors.map((error) => html`<div class="error">${error}</div>`)}
+  </div>
+    <div class="session-manager">
+      <label for="session">Session</label>
+      <select id="session" onchange=${onChangeSession}>
+        ${state.sessions.map((session, i) =>
+          html`<option value="${i}" ${i === state.sessionID ? 'selected' : ''}>${session.name}</option>`
+          )}
+      </select>
+      <div class="latest-stats">
+        ${latestStats}
+      </div>
+    </div>
+</div>`
 
-  render(state)
-}
+  function onChangeSession (e) {
+    e.preventDefault()
 
-initState()
-
-function onChangeSession (e) {
-  e.preventDefault()
-
-  const id = Number(e.target.value)
-  state.sessionID = id
-
-  getSession(id)
-}
-
-document.body.addEventListener('change', (e) => {
-  if (e.target.id !== 'session') return
-
-  onChangeSession(e)
-})
-
-function setupWS (port, bus) {
-  const ws = new WebSocket('ws://' + (window.location.hostname ? window.location.hostname : 'localhost') + ':' + port)
-  ws.onopen = () => {
-    console.log('ws connected')
-    bus.on('store:get', (field) => {
-      ws.send(JSON.stringify({ event: 'store:get', data: field }))
-    })
-
-    // Now connection is open, get info
-    bus.emit('store:get', 'stokerIP')
-  }
-
-  ws.onmessage = ({ data }) => {
-    data = JSON.parse(data)
-    bus.emit(data.event, data.data)
+    const id = Number(e.target.value)
+    emit('session:set', id)
   }
 }
 
-function getWSPort () {
-  axios.get(`http://${window.location.hostname ? window.location.hostname : 'localhost'}:${PORT}/ws-port`)
-    .then((response) => {
-      const port = response.data
-      setupWS(port, appBus)
-    })
-}
+module.exports = mainView
 
-getWSPort()
-function getSession (id) {
-  if (id === undefined) throw Error('no id provided to getSession()')
-
-  clearChart()
-
-  axios.get(`http://${window.location.hostname ? window.location.hostname : 'localhost'}:${PORT}/data/${id}`)
-    .then((response) => {
-      const session = response.data
-      const data = session.data
-      for (let i = 0; i < data.length; i++) {
-        const datapoint = data[i]
-        const update = i === data.length - 1
-        renderChart(datapoint, update)
-      }
-    })
-}
-
-function getSessions () {
-  return axios.get(`http://${window.location.hostname ? window.location.hostname : 'localhost'}:${PORT}/sessions`)
-    .then((response) => {
-      state.sessions = response.data
-    })
-}
-
-},{"../variables.json":30,"axios":1,"chart.js":27,"events":31}],30:[function(require,module,exports){
+},{"./latest-stats":81,"choo/html":40}],83:[function(require,module,exports){
 module.exports={
   "WS_PORT": 4001,
   "PORT": 4000
 }
 
-},{}],31:[function(require,module,exports){
+},{}],84:[function(require,module,exports){
+// http://wiki.commonjs.org/wiki/Unit_Testing/1.0
+//
+// THIS IS NOT TESTED NOR LIKELY TO WORK OUTSIDE V8!
+//
+// Originally from narwhal.js (http://narwhaljs.org)
+// Copyright (c) 2009 Thomas Robinson <280north.com>
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the 'Software'), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+// ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+// WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+// when used in node, this will actually load the util module we depend on
+// versus loading the builtin util module as happens otherwise
+// this is a bug in node module loading as far as I am concerned
+var util = require('util/');
+
+var pSlice = Array.prototype.slice;
+var hasOwn = Object.prototype.hasOwnProperty;
+
+// 1. The assert module provides functions that throw
+// AssertionError's when particular conditions are not met. The
+// assert module must conform to the following interface.
+
+var assert = module.exports = ok;
+
+// 2. The AssertionError is defined in assert.
+// new assert.AssertionError({ message: message,
+//                             actual: actual,
+//                             expected: expected })
+
+assert.AssertionError = function AssertionError(options) {
+  this.name = 'AssertionError';
+  this.actual = options.actual;
+  this.expected = options.expected;
+  this.operator = options.operator;
+  if (options.message) {
+    this.message = options.message;
+    this.generatedMessage = false;
+  } else {
+    this.message = getMessage(this);
+    this.generatedMessage = true;
+  }
+  var stackStartFunction = options.stackStartFunction || fail;
+
+  if (Error.captureStackTrace) {
+    Error.captureStackTrace(this, stackStartFunction);
+  }
+  else {
+    // non v8 browsers so we can have a stacktrace
+    var err = new Error();
+    if (err.stack) {
+      var out = err.stack;
+
+      // try to strip useless frames
+      var fn_name = stackStartFunction.name;
+      var idx = out.indexOf('\n' + fn_name);
+      if (idx >= 0) {
+        // once we have located the function frame
+        // we need to strip out everything before it (and its line)
+        var next_line = out.indexOf('\n', idx + 1);
+        out = out.substring(next_line + 1);
+      }
+
+      this.stack = out;
+    }
+  }
+};
+
+// assert.AssertionError instanceof Error
+util.inherits(assert.AssertionError, Error);
+
+function replacer(key, value) {
+  if (util.isUndefined(value)) {
+    return '' + value;
+  }
+  if (util.isNumber(value) && (isNaN(value) || !isFinite(value))) {
+    return value.toString();
+  }
+  if (util.isFunction(value) || util.isRegExp(value)) {
+    return value.toString();
+  }
+  return value;
+}
+
+function truncate(s, n) {
+  if (util.isString(s)) {
+    return s.length < n ? s : s.slice(0, n);
+  } else {
+    return s;
+  }
+}
+
+function getMessage(self) {
+  return truncate(JSON.stringify(self.actual, replacer), 128) + ' ' +
+         self.operator + ' ' +
+         truncate(JSON.stringify(self.expected, replacer), 128);
+}
+
+// At present only the three keys mentioned above are used and
+// understood by the spec. Implementations or sub modules can pass
+// other keys to the AssertionError's constructor - they will be
+// ignored.
+
+// 3. All of the following functions must throw an AssertionError
+// when a corresponding condition is not met, with a message that
+// may be undefined if not provided.  All assertion methods provide
+// both the actual and expected values to the assertion error for
+// display purposes.
+
+function fail(actual, expected, message, operator, stackStartFunction) {
+  throw new assert.AssertionError({
+    message: message,
+    actual: actual,
+    expected: expected,
+    operator: operator,
+    stackStartFunction: stackStartFunction
+  });
+}
+
+// EXTENSION! allows for well behaved errors defined elsewhere.
+assert.fail = fail;
+
+// 4. Pure assertion tests whether a value is truthy, as determined
+// by !!guard.
+// assert.ok(guard, message_opt);
+// This statement is equivalent to assert.equal(true, !!guard,
+// message_opt);. To test strictly for the value true, use
+// assert.strictEqual(true, guard, message_opt);.
+
+function ok(value, message) {
+  if (!value) fail(value, true, message, '==', assert.ok);
+}
+assert.ok = ok;
+
+// 5. The equality assertion tests shallow, coercive equality with
+// ==.
+// assert.equal(actual, expected, message_opt);
+
+assert.equal = function equal(actual, expected, message) {
+  if (actual != expected) fail(actual, expected, message, '==', assert.equal);
+};
+
+// 6. The non-equality assertion tests for whether two objects are not equal
+// with != assert.notEqual(actual, expected, message_opt);
+
+assert.notEqual = function notEqual(actual, expected, message) {
+  if (actual == expected) {
+    fail(actual, expected, message, '!=', assert.notEqual);
+  }
+};
+
+// 7. The equivalence assertion tests a deep equality relation.
+// assert.deepEqual(actual, expected, message_opt);
+
+assert.deepEqual = function deepEqual(actual, expected, message) {
+  if (!_deepEqual(actual, expected)) {
+    fail(actual, expected, message, 'deepEqual', assert.deepEqual);
+  }
+};
+
+function _deepEqual(actual, expected) {
+  // 7.1. All identical values are equivalent, as determined by ===.
+  if (actual === expected) {
+    return true;
+
+  } else if (util.isBuffer(actual) && util.isBuffer(expected)) {
+    if (actual.length != expected.length) return false;
+
+    for (var i = 0; i < actual.length; i++) {
+      if (actual[i] !== expected[i]) return false;
+    }
+
+    return true;
+
+  // 7.2. If the expected value is a Date object, the actual value is
+  // equivalent if it is also a Date object that refers to the same time.
+  } else if (util.isDate(actual) && util.isDate(expected)) {
+    return actual.getTime() === expected.getTime();
+
+  // 7.3 If the expected value is a RegExp object, the actual value is
+  // equivalent if it is also a RegExp object with the same source and
+  // properties (`global`, `multiline`, `lastIndex`, `ignoreCase`).
+  } else if (util.isRegExp(actual) && util.isRegExp(expected)) {
+    return actual.source === expected.source &&
+           actual.global === expected.global &&
+           actual.multiline === expected.multiline &&
+           actual.lastIndex === expected.lastIndex &&
+           actual.ignoreCase === expected.ignoreCase;
+
+  // 7.4. Other pairs that do not both pass typeof value == 'object',
+  // equivalence is determined by ==.
+  } else if (!util.isObject(actual) && !util.isObject(expected)) {
+    return actual == expected;
+
+  // 7.5 For all other Object pairs, including Array objects, equivalence is
+  // determined by having the same number of owned properties (as verified
+  // with Object.prototype.hasOwnProperty.call), the same set of keys
+  // (although not necessarily the same order), equivalent values for every
+  // corresponding key, and an identical 'prototype' property. Note: this
+  // accounts for both named and indexed properties on Arrays.
+  } else {
+    return objEquiv(actual, expected);
+  }
+}
+
+function isArguments(object) {
+  return Object.prototype.toString.call(object) == '[object Arguments]';
+}
+
+function objEquiv(a, b) {
+  if (util.isNullOrUndefined(a) || util.isNullOrUndefined(b))
+    return false;
+  // an identical 'prototype' property.
+  if (a.prototype !== b.prototype) return false;
+  //~~~I've managed to break Object.keys through screwy arguments passing.
+  //   Converting to array solves the problem.
+  if (isArguments(a)) {
+    if (!isArguments(b)) {
+      return false;
+    }
+    a = pSlice.call(a);
+    b = pSlice.call(b);
+    return _deepEqual(a, b);
+  }
+  try {
+    var ka = objectKeys(a),
+        kb = objectKeys(b),
+        key, i;
+  } catch (e) {//happens when one is a string literal and the other isn't
+    return false;
+  }
+  // having the same number of owned properties (keys incorporates
+  // hasOwnProperty)
+  if (ka.length != kb.length)
+    return false;
+  //the same set of keys (although not necessarily the same order),
+  ka.sort();
+  kb.sort();
+  //~~~cheap key test
+  for (i = ka.length - 1; i >= 0; i--) {
+    if (ka[i] != kb[i])
+      return false;
+  }
+  //equivalent values for every corresponding key, and
+  //~~~possibly expensive deep test
+  for (i = ka.length - 1; i >= 0; i--) {
+    key = ka[i];
+    if (!_deepEqual(a[key], b[key])) return false;
+  }
+  return true;
+}
+
+// 8. The non-equivalence assertion tests for any deep inequality.
+// assert.notDeepEqual(actual, expected, message_opt);
+
+assert.notDeepEqual = function notDeepEqual(actual, expected, message) {
+  if (_deepEqual(actual, expected)) {
+    fail(actual, expected, message, 'notDeepEqual', assert.notDeepEqual);
+  }
+};
+
+// 9. The strict equality assertion tests strict equality, as determined by ===.
+// assert.strictEqual(actual, expected, message_opt);
+
+assert.strictEqual = function strictEqual(actual, expected, message) {
+  if (actual !== expected) {
+    fail(actual, expected, message, '===', assert.strictEqual);
+  }
+};
+
+// 10. The strict non-equality assertion tests for strict inequality, as
+// determined by !==.  assert.notStrictEqual(actual, expected, message_opt);
+
+assert.notStrictEqual = function notStrictEqual(actual, expected, message) {
+  if (actual === expected) {
+    fail(actual, expected, message, '!==', assert.notStrictEqual);
+  }
+};
+
+function expectedException(actual, expected) {
+  if (!actual || !expected) {
+    return false;
+  }
+
+  if (Object.prototype.toString.call(expected) == '[object RegExp]') {
+    return expected.test(actual);
+  } else if (actual instanceof expected) {
+    return true;
+  } else if (expected.call({}, actual) === true) {
+    return true;
+  }
+
+  return false;
+}
+
+function _throws(shouldThrow, block, expected, message) {
+  var actual;
+
+  if (util.isString(expected)) {
+    message = expected;
+    expected = null;
+  }
+
+  try {
+    block();
+  } catch (e) {
+    actual = e;
+  }
+
+  message = (expected && expected.name ? ' (' + expected.name + ').' : '.') +
+            (message ? ' ' + message : '.');
+
+  if (shouldThrow && !actual) {
+    fail(actual, expected, 'Missing expected exception' + message);
+  }
+
+  if (!shouldThrow && expectedException(actual, expected)) {
+    fail(actual, expected, 'Got unwanted exception' + message);
+  }
+
+  if ((shouldThrow && actual && expected &&
+      !expectedException(actual, expected)) || (!shouldThrow && actual)) {
+    throw actual;
+  }
+}
+
+// 11. Expected to throw an error:
+// assert.throws(block, Error_opt, message_opt);
+
+assert.throws = function(block, /*optional*/error, /*optional*/message) {
+  _throws.apply(this, [true].concat(pSlice.call(arguments)));
+};
+
+// EXTENSION! This is annoying to write outside this module.
+assert.doesNotThrow = function(block, /*optional*/message) {
+  _throws.apply(this, [false].concat(pSlice.call(arguments)));
+};
+
+assert.ifError = function(err) { if (err) {throw err;}};
+
+var objectKeys = Object.keys || function (obj) {
+  var keys = [];
+  for (var key in obj) {
+    if (hasOwn.call(obj, key)) keys.push(key);
+  }
+  return keys;
+};
+
+},{"util/":86}],85:[function(require,module,exports){
+module.exports = function isBuffer(arg) {
+  return arg && typeof arg === 'object'
+    && typeof arg.copy === 'function'
+    && typeof arg.fill === 'function'
+    && typeof arg.readUInt8 === 'function';
+}
+},{}],86:[function(require,module,exports){
+(function (process,global){
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+var formatRegExp = /%[sdj%]/g;
+exports.format = function(f) {
+  if (!isString(f)) {
+    var objects = [];
+    for (var i = 0; i < arguments.length; i++) {
+      objects.push(inspect(arguments[i]));
+    }
+    return objects.join(' ');
+  }
+
+  var i = 1;
+  var args = arguments;
+  var len = args.length;
+  var str = String(f).replace(formatRegExp, function(x) {
+    if (x === '%%') return '%';
+    if (i >= len) return x;
+    switch (x) {
+      case '%s': return String(args[i++]);
+      case '%d': return Number(args[i++]);
+      case '%j':
+        try {
+          return JSON.stringify(args[i++]);
+        } catch (_) {
+          return '[Circular]';
+        }
+      default:
+        return x;
+    }
+  });
+  for (var x = args[i]; i < len; x = args[++i]) {
+    if (isNull(x) || !isObject(x)) {
+      str += ' ' + x;
+    } else {
+      str += ' ' + inspect(x);
+    }
+  }
+  return str;
+};
+
+
+// Mark that a method should not be used.
+// Returns a modified function which warns once by default.
+// If --no-deprecation is set, then it is a no-op.
+exports.deprecate = function(fn, msg) {
+  // Allow for deprecating things in the process of starting up.
+  if (isUndefined(global.process)) {
+    return function() {
+      return exports.deprecate(fn, msg).apply(this, arguments);
+    };
+  }
+
+  if (process.noDeprecation === true) {
+    return fn;
+  }
+
+  var warned = false;
+  function deprecated() {
+    if (!warned) {
+      if (process.throwDeprecation) {
+        throw new Error(msg);
+      } else if (process.traceDeprecation) {
+        console.trace(msg);
+      } else {
+        console.error(msg);
+      }
+      warned = true;
+    }
+    return fn.apply(this, arguments);
+  }
+
+  return deprecated;
+};
+
+
+var debugs = {};
+var debugEnviron;
+exports.debuglog = function(set) {
+  if (isUndefined(debugEnviron))
+    debugEnviron = process.env.NODE_DEBUG || '';
+  set = set.toUpperCase();
+  if (!debugs[set]) {
+    if (new RegExp('\\b' + set + '\\b', 'i').test(debugEnviron)) {
+      var pid = process.pid;
+      debugs[set] = function() {
+        var msg = exports.format.apply(exports, arguments);
+        console.error('%s %d: %s', set, pid, msg);
+      };
+    } else {
+      debugs[set] = function() {};
+    }
+  }
+  return debugs[set];
+};
+
+
+/**
+ * Echos the value of a value. Trys to print the value out
+ * in the best way possible given the different types.
+ *
+ * @param {Object} obj The object to print out.
+ * @param {Object} opts Optional options object that alters the output.
+ */
+/* legacy: obj, showHidden, depth, colors*/
+function inspect(obj, opts) {
+  // default options
+  var ctx = {
+    seen: [],
+    stylize: stylizeNoColor
+  };
+  // legacy...
+  if (arguments.length >= 3) ctx.depth = arguments[2];
+  if (arguments.length >= 4) ctx.colors = arguments[3];
+  if (isBoolean(opts)) {
+    // legacy...
+    ctx.showHidden = opts;
+  } else if (opts) {
+    // got an "options" object
+    exports._extend(ctx, opts);
+  }
+  // set default options
+  if (isUndefined(ctx.showHidden)) ctx.showHidden = false;
+  if (isUndefined(ctx.depth)) ctx.depth = 2;
+  if (isUndefined(ctx.colors)) ctx.colors = false;
+  if (isUndefined(ctx.customInspect)) ctx.customInspect = true;
+  if (ctx.colors) ctx.stylize = stylizeWithColor;
+  return formatValue(ctx, obj, ctx.depth);
+}
+exports.inspect = inspect;
+
+
+// http://en.wikipedia.org/wiki/ANSI_escape_code#graphics
+inspect.colors = {
+  'bold' : [1, 22],
+  'italic' : [3, 23],
+  'underline' : [4, 24],
+  'inverse' : [7, 27],
+  'white' : [37, 39],
+  'grey' : [90, 39],
+  'black' : [30, 39],
+  'blue' : [34, 39],
+  'cyan' : [36, 39],
+  'green' : [32, 39],
+  'magenta' : [35, 39],
+  'red' : [31, 39],
+  'yellow' : [33, 39]
+};
+
+// Don't use 'blue' not visible on cmd.exe
+inspect.styles = {
+  'special': 'cyan',
+  'number': 'yellow',
+  'boolean': 'yellow',
+  'undefined': 'grey',
+  'null': 'bold',
+  'string': 'green',
+  'date': 'magenta',
+  // "name": intentionally not styling
+  'regexp': 'red'
+};
+
+
+function stylizeWithColor(str, styleType) {
+  var style = inspect.styles[styleType];
+
+  if (style) {
+    return '\u001b[' + inspect.colors[style][0] + 'm' + str +
+           '\u001b[' + inspect.colors[style][1] + 'm';
+  } else {
+    return str;
+  }
+}
+
+
+function stylizeNoColor(str, styleType) {
+  return str;
+}
+
+
+function arrayToHash(array) {
+  var hash = {};
+
+  array.forEach(function(val, idx) {
+    hash[val] = true;
+  });
+
+  return hash;
+}
+
+
+function formatValue(ctx, value, recurseTimes) {
+  // Provide a hook for user-specified inspect functions.
+  // Check that value is an object with an inspect function on it
+  if (ctx.customInspect &&
+      value &&
+      isFunction(value.inspect) &&
+      // Filter out the util module, it's inspect function is special
+      value.inspect !== exports.inspect &&
+      // Also filter out any prototype objects using the circular check.
+      !(value.constructor && value.constructor.prototype === value)) {
+    var ret = value.inspect(recurseTimes, ctx);
+    if (!isString(ret)) {
+      ret = formatValue(ctx, ret, recurseTimes);
+    }
+    return ret;
+  }
+
+  // Primitive types cannot have properties
+  var primitive = formatPrimitive(ctx, value);
+  if (primitive) {
+    return primitive;
+  }
+
+  // Look up the keys of the object.
+  var keys = Object.keys(value);
+  var visibleKeys = arrayToHash(keys);
+
+  if (ctx.showHidden) {
+    keys = Object.getOwnPropertyNames(value);
+  }
+
+  // IE doesn't make error fields non-enumerable
+  // http://msdn.microsoft.com/en-us/library/ie/dww52sbt(v=vs.94).aspx
+  if (isError(value)
+      && (keys.indexOf('message') >= 0 || keys.indexOf('description') >= 0)) {
+    return formatError(value);
+  }
+
+  // Some type of object without properties can be shortcutted.
+  if (keys.length === 0) {
+    if (isFunction(value)) {
+      var name = value.name ? ': ' + value.name : '';
+      return ctx.stylize('[Function' + name + ']', 'special');
+    }
+    if (isRegExp(value)) {
+      return ctx.stylize(RegExp.prototype.toString.call(value), 'regexp');
+    }
+    if (isDate(value)) {
+      return ctx.stylize(Date.prototype.toString.call(value), 'date');
+    }
+    if (isError(value)) {
+      return formatError(value);
+    }
+  }
+
+  var base = '', array = false, braces = ['{', '}'];
+
+  // Make Array say that they are Array
+  if (isArray(value)) {
+    array = true;
+    braces = ['[', ']'];
+  }
+
+  // Make functions say that they are functions
+  if (isFunction(value)) {
+    var n = value.name ? ': ' + value.name : '';
+    base = ' [Function' + n + ']';
+  }
+
+  // Make RegExps say that they are RegExps
+  if (isRegExp(value)) {
+    base = ' ' + RegExp.prototype.toString.call(value);
+  }
+
+  // Make dates with properties first say the date
+  if (isDate(value)) {
+    base = ' ' + Date.prototype.toUTCString.call(value);
+  }
+
+  // Make error with message first say the error
+  if (isError(value)) {
+    base = ' ' + formatError(value);
+  }
+
+  if (keys.length === 0 && (!array || value.length == 0)) {
+    return braces[0] + base + braces[1];
+  }
+
+  if (recurseTimes < 0) {
+    if (isRegExp(value)) {
+      return ctx.stylize(RegExp.prototype.toString.call(value), 'regexp');
+    } else {
+      return ctx.stylize('[Object]', 'special');
+    }
+  }
+
+  ctx.seen.push(value);
+
+  var output;
+  if (array) {
+    output = formatArray(ctx, value, recurseTimes, visibleKeys, keys);
+  } else {
+    output = keys.map(function(key) {
+      return formatProperty(ctx, value, recurseTimes, visibleKeys, key, array);
+    });
+  }
+
+  ctx.seen.pop();
+
+  return reduceToSingleString(output, base, braces);
+}
+
+
+function formatPrimitive(ctx, value) {
+  if (isUndefined(value))
+    return ctx.stylize('undefined', 'undefined');
+  if (isString(value)) {
+    var simple = '\'' + JSON.stringify(value).replace(/^"|"$/g, '')
+                                             .replace(/'/g, "\\'")
+                                             .replace(/\\"/g, '"') + '\'';
+    return ctx.stylize(simple, 'string');
+  }
+  if (isNumber(value))
+    return ctx.stylize('' + value, 'number');
+  if (isBoolean(value))
+    return ctx.stylize('' + value, 'boolean');
+  // For some reason typeof null is "object", so special case here.
+  if (isNull(value))
+    return ctx.stylize('null', 'null');
+}
+
+
+function formatError(value) {
+  return '[' + Error.prototype.toString.call(value) + ']';
+}
+
+
+function formatArray(ctx, value, recurseTimes, visibleKeys, keys) {
+  var output = [];
+  for (var i = 0, l = value.length; i < l; ++i) {
+    if (hasOwnProperty(value, String(i))) {
+      output.push(formatProperty(ctx, value, recurseTimes, visibleKeys,
+          String(i), true));
+    } else {
+      output.push('');
+    }
+  }
+  keys.forEach(function(key) {
+    if (!key.match(/^\d+$/)) {
+      output.push(formatProperty(ctx, value, recurseTimes, visibleKeys,
+          key, true));
+    }
+  });
+  return output;
+}
+
+
+function formatProperty(ctx, value, recurseTimes, visibleKeys, key, array) {
+  var name, str, desc;
+  desc = Object.getOwnPropertyDescriptor(value, key) || { value: value[key] };
+  if (desc.get) {
+    if (desc.set) {
+      str = ctx.stylize('[Getter/Setter]', 'special');
+    } else {
+      str = ctx.stylize('[Getter]', 'special');
+    }
+  } else {
+    if (desc.set) {
+      str = ctx.stylize('[Setter]', 'special');
+    }
+  }
+  if (!hasOwnProperty(visibleKeys, key)) {
+    name = '[' + key + ']';
+  }
+  if (!str) {
+    if (ctx.seen.indexOf(desc.value) < 0) {
+      if (isNull(recurseTimes)) {
+        str = formatValue(ctx, desc.value, null);
+      } else {
+        str = formatValue(ctx, desc.value, recurseTimes - 1);
+      }
+      if (str.indexOf('\n') > -1) {
+        if (array) {
+          str = str.split('\n').map(function(line) {
+            return '  ' + line;
+          }).join('\n').substr(2);
+        } else {
+          str = '\n' + str.split('\n').map(function(line) {
+            return '   ' + line;
+          }).join('\n');
+        }
+      }
+    } else {
+      str = ctx.stylize('[Circular]', 'special');
+    }
+  }
+  if (isUndefined(name)) {
+    if (array && key.match(/^\d+$/)) {
+      return str;
+    }
+    name = JSON.stringify('' + key);
+    if (name.match(/^"([a-zA-Z_][a-zA-Z_0-9]*)"$/)) {
+      name = name.substr(1, name.length - 2);
+      name = ctx.stylize(name, 'name');
+    } else {
+      name = name.replace(/'/g, "\\'")
+                 .replace(/\\"/g, '"')
+                 .replace(/(^"|"$)/g, "'");
+      name = ctx.stylize(name, 'string');
+    }
+  }
+
+  return name + ': ' + str;
+}
+
+
+function reduceToSingleString(output, base, braces) {
+  var numLinesEst = 0;
+  var length = output.reduce(function(prev, cur) {
+    numLinesEst++;
+    if (cur.indexOf('\n') >= 0) numLinesEst++;
+    return prev + cur.replace(/\u001b\[\d\d?m/g, '').length + 1;
+  }, 0);
+
+  if (length > 60) {
+    return braces[0] +
+           (base === '' ? '' : base + '\n ') +
+           ' ' +
+           output.join(',\n  ') +
+           ' ' +
+           braces[1];
+  }
+
+  return braces[0] + base + ' ' + output.join(', ') + ' ' + braces[1];
+}
+
+
+// NOTE: These type checking functions intentionally don't use `instanceof`
+// because it is fragile and can be easily faked with `Object.create()`.
+function isArray(ar) {
+  return Array.isArray(ar);
+}
+exports.isArray = isArray;
+
+function isBoolean(arg) {
+  return typeof arg === 'boolean';
+}
+exports.isBoolean = isBoolean;
+
+function isNull(arg) {
+  return arg === null;
+}
+exports.isNull = isNull;
+
+function isNullOrUndefined(arg) {
+  return arg == null;
+}
+exports.isNullOrUndefined = isNullOrUndefined;
+
+function isNumber(arg) {
+  return typeof arg === 'number';
+}
+exports.isNumber = isNumber;
+
+function isString(arg) {
+  return typeof arg === 'string';
+}
+exports.isString = isString;
+
+function isSymbol(arg) {
+  return typeof arg === 'symbol';
+}
+exports.isSymbol = isSymbol;
+
+function isUndefined(arg) {
+  return arg === void 0;
+}
+exports.isUndefined = isUndefined;
+
+function isRegExp(re) {
+  return isObject(re) && objectToString(re) === '[object RegExp]';
+}
+exports.isRegExp = isRegExp;
+
+function isObject(arg) {
+  return typeof arg === 'object' && arg !== null;
+}
+exports.isObject = isObject;
+
+function isDate(d) {
+  return isObject(d) && objectToString(d) === '[object Date]';
+}
+exports.isDate = isDate;
+
+function isError(e) {
+  return isObject(e) &&
+      (objectToString(e) === '[object Error]' || e instanceof Error);
+}
+exports.isError = isError;
+
+function isFunction(arg) {
+  return typeof arg === 'function';
+}
+exports.isFunction = isFunction;
+
+function isPrimitive(arg) {
+  return arg === null ||
+         typeof arg === 'boolean' ||
+         typeof arg === 'number' ||
+         typeof arg === 'string' ||
+         typeof arg === 'symbol' ||  // ES6 symbol
+         typeof arg === 'undefined';
+}
+exports.isPrimitive = isPrimitive;
+
+exports.isBuffer = require('./support/isBuffer');
+
+function objectToString(o) {
+  return Object.prototype.toString.call(o);
+}
+
+
+function pad(n) {
+  return n < 10 ? '0' + n.toString(10) : n.toString(10);
+}
+
+
+var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
+              'Oct', 'Nov', 'Dec'];
+
+// 26 Feb 16:19:34
+function timestamp() {
+  var d = new Date();
+  var time = [pad(d.getHours()),
+              pad(d.getMinutes()),
+              pad(d.getSeconds())].join(':');
+  return [d.getDate(), months[d.getMonth()], time].join(' ');
+}
+
+
+// log is just a thin wrapper to console.log that prepends a timestamp
+exports.log = function() {
+  console.log('%s - %s', timestamp(), exports.format.apply(exports, arguments));
+};
+
+
+/**
+ * Inherit the prototype methods from one constructor into another.
+ *
+ * The Function.prototype.inherits from lang.js rewritten as a standalone
+ * function (not on Function.prototype). NOTE: If this file is to be loaded
+ * during bootstrapping this function needs to be rewritten using some native
+ * functions as prototype setup using normal JavaScript does not work as
+ * expected during bootstrapping (see mirror.js in r114903).
+ *
+ * @param {function} ctor Constructor function which needs to inherit the
+ *     prototype.
+ * @param {function} superCtor Constructor function to inherit prototype from.
+ */
+exports.inherits = require('inherits');
+
+exports._extend = function(origin, add) {
+  // Don't do anything if add isn't an object
+  if (!add || !isObject(add)) return origin;
+
+  var keys = Object.keys(add);
+  var i = keys.length;
+  while (i--) {
+    origin[keys[i]] = add[keys[i]];
+  }
+  return origin;
+};
+
+function hasOwnProperty(obj, prop) {
+  return Object.prototype.hasOwnProperty.call(obj, prop);
+}
+
+}).call(this,require("sycGbZ"),typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"./support/isBuffer":85,"inherits":91,"sycGbZ":92}],87:[function(require,module,exports){
+/*!
+ * The buffer module from node.js, for the browser.
+ *
+ * @author   Feross Aboukhadijeh <feross@feross.org> <http://feross.org>
+ * @license  MIT
+ */
+
+var base64 = require('base64-js')
+var ieee754 = require('ieee754')
+
+exports.Buffer = Buffer
+exports.SlowBuffer = Buffer
+exports.INSPECT_MAX_BYTES = 50
+Buffer.poolSize = 8192
+
+/**
+ * If `Buffer._useTypedArrays`:
+ *   === true    Use Uint8Array implementation (fastest)
+ *   === false   Use Object implementation (compatible down to IE6)
+ */
+Buffer._useTypedArrays = (function () {
+  // Detect if browser supports Typed Arrays. Supported browsers are IE 10+, Firefox 4+,
+  // Chrome 7+, Safari 5.1+, Opera 11.6+, iOS 4.2+. If the browser does not support adding
+  // properties to `Uint8Array` instances, then that's the same as no `Uint8Array` support
+  // because we need to be able to add all the node Buffer API methods. This is an issue
+  // in Firefox 4-29. Now fixed: https://bugzilla.mozilla.org/show_bug.cgi?id=695438
+  try {
+    var buf = new ArrayBuffer(0)
+    var arr = new Uint8Array(buf)
+    arr.foo = function () { return 42 }
+    return 42 === arr.foo() &&
+        typeof arr.subarray === 'function' // Chrome 9-10 lack `subarray`
+  } catch (e) {
+    return false
+  }
+})()
+
+/**
+ * Class: Buffer
+ * =============
+ *
+ * The Buffer constructor returns instances of `Uint8Array` that are augmented
+ * with function properties for all the node `Buffer` API functions. We use
+ * `Uint8Array` so that square bracket notation works as expected -- it returns
+ * a single octet.
+ *
+ * By augmenting the instances, we can avoid modifying the `Uint8Array`
+ * prototype.
+ */
+function Buffer (subject, encoding, noZero) {
+  if (!(this instanceof Buffer))
+    return new Buffer(subject, encoding, noZero)
+
+  var type = typeof subject
+
+  // Workaround: node's base64 implementation allows for non-padded strings
+  // while base64-js does not.
+  if (encoding === 'base64' && type === 'string') {
+    subject = stringtrim(subject)
+    while (subject.length % 4 !== 0) {
+      subject = subject + '='
+    }
+  }
+
+  // Find the length
+  var length
+  if (type === 'number')
+    length = coerce(subject)
+  else if (type === 'string')
+    length = Buffer.byteLength(subject, encoding)
+  else if (type === 'object')
+    length = coerce(subject.length) // assume that object is array-like
+  else
+    throw new Error('First argument needs to be a number, array or string.')
+
+  var buf
+  if (Buffer._useTypedArrays) {
+    // Preferred: Return an augmented `Uint8Array` instance for best performance
+    buf = Buffer._augment(new Uint8Array(length))
+  } else {
+    // Fallback: Return THIS instance of Buffer (created by `new`)
+    buf = this
+    buf.length = length
+    buf._isBuffer = true
+  }
+
+  var i
+  if (Buffer._useTypedArrays && typeof subject.byteLength === 'number') {
+    // Speed optimization -- use set if we're copying from a typed array
+    buf._set(subject)
+  } else if (isArrayish(subject)) {
+    // Treat array-ish objects as a byte array
+    if (Buffer.isBuffer(subject)) {
+      for (i = 0; i < length; i++)
+        buf[i] = subject.readUInt8(i)
+    } else {
+      for (i = 0; i < length; i++)
+        buf[i] = ((subject[i] % 256) + 256) % 256
+    }
+  } else if (type === 'string') {
+    buf.write(subject, 0, encoding)
+  } else if (type === 'number' && !Buffer._useTypedArrays && !noZero) {
+    for (i = 0; i < length; i++) {
+      buf[i] = 0
+    }
+  }
+
+  return buf
+}
+
+// STATIC METHODS
+// ==============
+
+Buffer.isEncoding = function (encoding) {
+  switch (String(encoding).toLowerCase()) {
+    case 'hex':
+    case 'utf8':
+    case 'utf-8':
+    case 'ascii':
+    case 'binary':
+    case 'base64':
+    case 'raw':
+    case 'ucs2':
+    case 'ucs-2':
+    case 'utf16le':
+    case 'utf-16le':
+      return true
+    default:
+      return false
+  }
+}
+
+Buffer.isBuffer = function (b) {
+  return !!(b !== null && b !== undefined && b._isBuffer)
+}
+
+Buffer.byteLength = function (str, encoding) {
+  var ret
+  str = str.toString()
+  switch (encoding || 'utf8') {
+    case 'hex':
+      ret = str.length / 2
+      break
+    case 'utf8':
+    case 'utf-8':
+      ret = utf8ToBytes(str).length
+      break
+    case 'ascii':
+    case 'binary':
+    case 'raw':
+      ret = str.length
+      break
+    case 'base64':
+      ret = base64ToBytes(str).length
+      break
+    case 'ucs2':
+    case 'ucs-2':
+    case 'utf16le':
+    case 'utf-16le':
+      ret = str.length * 2
+      break
+    default:
+      throw new Error('Unknown encoding')
+  }
+  return ret
+}
+
+Buffer.concat = function (list, totalLength) {
+  assert(isArray(list), 'Usage: Buffer.concat(list[, length])')
+
+  if (list.length === 0) {
+    return new Buffer(0)
+  } else if (list.length === 1) {
+    return list[0]
+  }
+
+  var i
+  if (totalLength === undefined) {
+    totalLength = 0
+    for (i = 0; i < list.length; i++) {
+      totalLength += list[i].length
+    }
+  }
+
+  var buf = new Buffer(totalLength)
+  var pos = 0
+  for (i = 0; i < list.length; i++) {
+    var item = list[i]
+    item.copy(buf, pos)
+    pos += item.length
+  }
+  return buf
+}
+
+Buffer.compare = function (a, b) {
+  assert(Buffer.isBuffer(a) && Buffer.isBuffer(b), 'Arguments must be Buffers')
+  var x = a.length
+  var y = b.length
+  for (var i = 0, len = Math.min(x, y); i < len && a[i] === b[i]; i++) {}
+  if (i !== len) {
+    x = a[i]
+    y = b[i]
+  }
+  if (x < y) {
+    return -1
+  }
+  if (y < x) {
+    return 1
+  }
+  return 0
+}
+
+// BUFFER INSTANCE METHODS
+// =======================
+
+function hexWrite (buf, string, offset, length) {
+  offset = Number(offset) || 0
+  var remaining = buf.length - offset
+  if (!length) {
+    length = remaining
+  } else {
+    length = Number(length)
+    if (length > remaining) {
+      length = remaining
+    }
+  }
+
+  // must be an even number of digits
+  var strLen = string.length
+  assert(strLen % 2 === 0, 'Invalid hex string')
+
+  if (length > strLen / 2) {
+    length = strLen / 2
+  }
+  for (var i = 0; i < length; i++) {
+    var byte = parseInt(string.substr(i * 2, 2), 16)
+    assert(!isNaN(byte), 'Invalid hex string')
+    buf[offset + i] = byte
+  }
+  return i
+}
+
+function utf8Write (buf, string, offset, length) {
+  var charsWritten = blitBuffer(utf8ToBytes(string), buf, offset, length)
+  return charsWritten
+}
+
+function asciiWrite (buf, string, offset, length) {
+  var charsWritten = blitBuffer(asciiToBytes(string), buf, offset, length)
+  return charsWritten
+}
+
+function binaryWrite (buf, string, offset, length) {
+  return asciiWrite(buf, string, offset, length)
+}
+
+function base64Write (buf, string, offset, length) {
+  var charsWritten = blitBuffer(base64ToBytes(string), buf, offset, length)
+  return charsWritten
+}
+
+function utf16leWrite (buf, string, offset, length) {
+  var charsWritten = blitBuffer(utf16leToBytes(string), buf, offset, length)
+  return charsWritten
+}
+
+Buffer.prototype.write = function (string, offset, length, encoding) {
+  // Support both (string, offset, length, encoding)
+  // and the legacy (string, encoding, offset, length)
+  if (isFinite(offset)) {
+    if (!isFinite(length)) {
+      encoding = length
+      length = undefined
+    }
+  } else {  // legacy
+    var swap = encoding
+    encoding = offset
+    offset = length
+    length = swap
+  }
+
+  offset = Number(offset) || 0
+  var remaining = this.length - offset
+  if (!length) {
+    length = remaining
+  } else {
+    length = Number(length)
+    if (length > remaining) {
+      length = remaining
+    }
+  }
+  encoding = String(encoding || 'utf8').toLowerCase()
+
+  var ret
+  switch (encoding) {
+    case 'hex':
+      ret = hexWrite(this, string, offset, length)
+      break
+    case 'utf8':
+    case 'utf-8':
+      ret = utf8Write(this, string, offset, length)
+      break
+    case 'ascii':
+      ret = asciiWrite(this, string, offset, length)
+      break
+    case 'binary':
+      ret = binaryWrite(this, string, offset, length)
+      break
+    case 'base64':
+      ret = base64Write(this, string, offset, length)
+      break
+    case 'ucs2':
+    case 'ucs-2':
+    case 'utf16le':
+    case 'utf-16le':
+      ret = utf16leWrite(this, string, offset, length)
+      break
+    default:
+      throw new Error('Unknown encoding')
+  }
+  return ret
+}
+
+Buffer.prototype.toString = function (encoding, start, end) {
+  var self = this
+
+  encoding = String(encoding || 'utf8').toLowerCase()
+  start = Number(start) || 0
+  end = (end === undefined) ? self.length : Number(end)
+
+  // Fastpath empty strings
+  if (end === start)
+    return ''
+
+  var ret
+  switch (encoding) {
+    case 'hex':
+      ret = hexSlice(self, start, end)
+      break
+    case 'utf8':
+    case 'utf-8':
+      ret = utf8Slice(self, start, end)
+      break
+    case 'ascii':
+      ret = asciiSlice(self, start, end)
+      break
+    case 'binary':
+      ret = binarySlice(self, start, end)
+      break
+    case 'base64':
+      ret = base64Slice(self, start, end)
+      break
+    case 'ucs2':
+    case 'ucs-2':
+    case 'utf16le':
+    case 'utf-16le':
+      ret = utf16leSlice(self, start, end)
+      break
+    default:
+      throw new Error('Unknown encoding')
+  }
+  return ret
+}
+
+Buffer.prototype.toJSON = function () {
+  return {
+    type: 'Buffer',
+    data: Array.prototype.slice.call(this._arr || this, 0)
+  }
+}
+
+Buffer.prototype.equals = function (b) {
+  assert(Buffer.isBuffer(b), 'Argument must be a Buffer')
+  return Buffer.compare(this, b) === 0
+}
+
+Buffer.prototype.compare = function (b) {
+  assert(Buffer.isBuffer(b), 'Argument must be a Buffer')
+  return Buffer.compare(this, b)
+}
+
+// copy(targetBuffer, targetStart=0, sourceStart=0, sourceEnd=buffer.length)
+Buffer.prototype.copy = function (target, target_start, start, end) {
+  var source = this
+
+  if (!start) start = 0
+  if (!end && end !== 0) end = this.length
+  if (!target_start) target_start = 0
+
+  // Copy 0 bytes; we're done
+  if (end === start) return
+  if (target.length === 0 || source.length === 0) return
+
+  // Fatal error conditions
+  assert(end >= start, 'sourceEnd < sourceStart')
+  assert(target_start >= 0 && target_start < target.length,
+      'targetStart out of bounds')
+  assert(start >= 0 && start < source.length, 'sourceStart out of bounds')
+  assert(end >= 0 && end <= source.length, 'sourceEnd out of bounds')
+
+  // Are we oob?
+  if (end > this.length)
+    end = this.length
+  if (target.length - target_start < end - start)
+    end = target.length - target_start + start
+
+  var len = end - start
+
+  if (len < 100 || !Buffer._useTypedArrays) {
+    for (var i = 0; i < len; i++) {
+      target[i + target_start] = this[i + start]
+    }
+  } else {
+    target._set(this.subarray(start, start + len), target_start)
+  }
+}
+
+function base64Slice (buf, start, end) {
+  if (start === 0 && end === buf.length) {
+    return base64.fromByteArray(buf)
+  } else {
+    return base64.fromByteArray(buf.slice(start, end))
+  }
+}
+
+function utf8Slice (buf, start, end) {
+  var res = ''
+  var tmp = ''
+  end = Math.min(buf.length, end)
+
+  for (var i = start; i < end; i++) {
+    if (buf[i] <= 0x7F) {
+      res += decodeUtf8Char(tmp) + String.fromCharCode(buf[i])
+      tmp = ''
+    } else {
+      tmp += '%' + buf[i].toString(16)
+    }
+  }
+
+  return res + decodeUtf8Char(tmp)
+}
+
+function asciiSlice (buf, start, end) {
+  var ret = ''
+  end = Math.min(buf.length, end)
+
+  for (var i = start; i < end; i++) {
+    ret += String.fromCharCode(buf[i])
+  }
+  return ret
+}
+
+function binarySlice (buf, start, end) {
+  return asciiSlice(buf, start, end)
+}
+
+function hexSlice (buf, start, end) {
+  var len = buf.length
+
+  if (!start || start < 0) start = 0
+  if (!end || end < 0 || end > len) end = len
+
+  var out = ''
+  for (var i = start; i < end; i++) {
+    out += toHex(buf[i])
+  }
+  return out
+}
+
+function utf16leSlice (buf, start, end) {
+  var bytes = buf.slice(start, end)
+  var res = ''
+  for (var i = 0; i < bytes.length; i += 2) {
+    res += String.fromCharCode(bytes[i] + bytes[i + 1] * 256)
+  }
+  return res
+}
+
+Buffer.prototype.slice = function (start, end) {
+  var len = this.length
+  start = clamp(start, len, 0)
+  end = clamp(end, len, len)
+
+  if (Buffer._useTypedArrays) {
+    return Buffer._augment(this.subarray(start, end))
+  } else {
+    var sliceLen = end - start
+    var newBuf = new Buffer(sliceLen, undefined, true)
+    for (var i = 0; i < sliceLen; i++) {
+      newBuf[i] = this[i + start]
+    }
+    return newBuf
+  }
+}
+
+// `get` will be removed in Node 0.13+
+Buffer.prototype.get = function (offset) {
+  console.log('.get() is deprecated. Access using array indexes instead.')
+  return this.readUInt8(offset)
+}
+
+// `set` will be removed in Node 0.13+
+Buffer.prototype.set = function (v, offset) {
+  console.log('.set() is deprecated. Access using array indexes instead.')
+  return this.writeUInt8(v, offset)
+}
+
+Buffer.prototype.readUInt8 = function (offset, noAssert) {
+  if (!noAssert) {
+    assert(offset !== undefined && offset !== null, 'missing offset')
+    assert(offset < this.length, 'Trying to read beyond buffer length')
+  }
+
+  if (offset >= this.length)
+    return
+
+  return this[offset]
+}
+
+function readUInt16 (buf, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    assert(offset !== undefined && offset !== null, 'missing offset')
+    assert(offset + 1 < buf.length, 'Trying to read beyond buffer length')
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  var val
+  if (littleEndian) {
+    val = buf[offset]
+    if (offset + 1 < len)
+      val |= buf[offset + 1] << 8
+  } else {
+    val = buf[offset] << 8
+    if (offset + 1 < len)
+      val |= buf[offset + 1]
+  }
+  return val
+}
+
+Buffer.prototype.readUInt16LE = function (offset, noAssert) {
+  return readUInt16(this, offset, true, noAssert)
+}
+
+Buffer.prototype.readUInt16BE = function (offset, noAssert) {
+  return readUInt16(this, offset, false, noAssert)
+}
+
+function readUInt32 (buf, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    assert(offset !== undefined && offset !== null, 'missing offset')
+    assert(offset + 3 < buf.length, 'Trying to read beyond buffer length')
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  var val
+  if (littleEndian) {
+    if (offset + 2 < len)
+      val = buf[offset + 2] << 16
+    if (offset + 1 < len)
+      val |= buf[offset + 1] << 8
+    val |= buf[offset]
+    if (offset + 3 < len)
+      val = val + (buf[offset + 3] << 24 >>> 0)
+  } else {
+    if (offset + 1 < len)
+      val = buf[offset + 1] << 16
+    if (offset + 2 < len)
+      val |= buf[offset + 2] << 8
+    if (offset + 3 < len)
+      val |= buf[offset + 3]
+    val = val + (buf[offset] << 24 >>> 0)
+  }
+  return val
+}
+
+Buffer.prototype.readUInt32LE = function (offset, noAssert) {
+  return readUInt32(this, offset, true, noAssert)
+}
+
+Buffer.prototype.readUInt32BE = function (offset, noAssert) {
+  return readUInt32(this, offset, false, noAssert)
+}
+
+Buffer.prototype.readInt8 = function (offset, noAssert) {
+  if (!noAssert) {
+    assert(offset !== undefined && offset !== null,
+        'missing offset')
+    assert(offset < this.length, 'Trying to read beyond buffer length')
+  }
+
+  if (offset >= this.length)
+    return
+
+  var neg = this[offset] & 0x80
+  if (neg)
+    return (0xff - this[offset] + 1) * -1
+  else
+    return this[offset]
+}
+
+function readInt16 (buf, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    assert(offset !== undefined && offset !== null, 'missing offset')
+    assert(offset + 1 < buf.length, 'Trying to read beyond buffer length')
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  var val = readUInt16(buf, offset, littleEndian, true)
+  var neg = val & 0x8000
+  if (neg)
+    return (0xffff - val + 1) * -1
+  else
+    return val
+}
+
+Buffer.prototype.readInt16LE = function (offset, noAssert) {
+  return readInt16(this, offset, true, noAssert)
+}
+
+Buffer.prototype.readInt16BE = function (offset, noAssert) {
+  return readInt16(this, offset, false, noAssert)
+}
+
+function readInt32 (buf, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    assert(offset !== undefined && offset !== null, 'missing offset')
+    assert(offset + 3 < buf.length, 'Trying to read beyond buffer length')
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  var val = readUInt32(buf, offset, littleEndian, true)
+  var neg = val & 0x80000000
+  if (neg)
+    return (0xffffffff - val + 1) * -1
+  else
+    return val
+}
+
+Buffer.prototype.readInt32LE = function (offset, noAssert) {
+  return readInt32(this, offset, true, noAssert)
+}
+
+Buffer.prototype.readInt32BE = function (offset, noAssert) {
+  return readInt32(this, offset, false, noAssert)
+}
+
+function readFloat (buf, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    assert(offset + 3 < buf.length, 'Trying to read beyond buffer length')
+  }
+
+  return ieee754.read(buf, offset, littleEndian, 23, 4)
+}
+
+Buffer.prototype.readFloatLE = function (offset, noAssert) {
+  return readFloat(this, offset, true, noAssert)
+}
+
+Buffer.prototype.readFloatBE = function (offset, noAssert) {
+  return readFloat(this, offset, false, noAssert)
+}
+
+function readDouble (buf, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    assert(offset + 7 < buf.length, 'Trying to read beyond buffer length')
+  }
+
+  return ieee754.read(buf, offset, littleEndian, 52, 8)
+}
+
+Buffer.prototype.readDoubleLE = function (offset, noAssert) {
+  return readDouble(this, offset, true, noAssert)
+}
+
+Buffer.prototype.readDoubleBE = function (offset, noAssert) {
+  return readDouble(this, offset, false, noAssert)
+}
+
+Buffer.prototype.writeUInt8 = function (value, offset, noAssert) {
+  if (!noAssert) {
+    assert(value !== undefined && value !== null, 'missing value')
+    assert(offset !== undefined && offset !== null, 'missing offset')
+    assert(offset < this.length, 'trying to write beyond buffer length')
+    verifuint(value, 0xff)
+  }
+
+  if (offset >= this.length) return
+
+  this[offset] = value
+  return offset + 1
+}
+
+function writeUInt16 (buf, value, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    assert(value !== undefined && value !== null, 'missing value')
+    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    assert(offset !== undefined && offset !== null, 'missing offset')
+    assert(offset + 1 < buf.length, 'trying to write beyond buffer length')
+    verifuint(value, 0xffff)
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  for (var i = 0, j = Math.min(len - offset, 2); i < j; i++) {
+    buf[offset + i] =
+        (value & (0xff << (8 * (littleEndian ? i : 1 - i)))) >>>
+            (littleEndian ? i : 1 - i) * 8
+  }
+  return offset + 2
+}
+
+Buffer.prototype.writeUInt16LE = function (value, offset, noAssert) {
+  return writeUInt16(this, value, offset, true, noAssert)
+}
+
+Buffer.prototype.writeUInt16BE = function (value, offset, noAssert) {
+  return writeUInt16(this, value, offset, false, noAssert)
+}
+
+function writeUInt32 (buf, value, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    assert(value !== undefined && value !== null, 'missing value')
+    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    assert(offset !== undefined && offset !== null, 'missing offset')
+    assert(offset + 3 < buf.length, 'trying to write beyond buffer length')
+    verifuint(value, 0xffffffff)
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  for (var i = 0, j = Math.min(len - offset, 4); i < j; i++) {
+    buf[offset + i] =
+        (value >>> (littleEndian ? i : 3 - i) * 8) & 0xff
+  }
+  return offset + 4
+}
+
+Buffer.prototype.writeUInt32LE = function (value, offset, noAssert) {
+  return writeUInt32(this, value, offset, true, noAssert)
+}
+
+Buffer.prototype.writeUInt32BE = function (value, offset, noAssert) {
+  return writeUInt32(this, value, offset, false, noAssert)
+}
+
+Buffer.prototype.writeInt8 = function (value, offset, noAssert) {
+  if (!noAssert) {
+    assert(value !== undefined && value !== null, 'missing value')
+    assert(offset !== undefined && offset !== null, 'missing offset')
+    assert(offset < this.length, 'Trying to write beyond buffer length')
+    verifsint(value, 0x7f, -0x80)
+  }
+
+  if (offset >= this.length)
+    return
+
+  if (value >= 0)
+    this.writeUInt8(value, offset, noAssert)
+  else
+    this.writeUInt8(0xff + value + 1, offset, noAssert)
+  return offset + 1
+}
+
+function writeInt16 (buf, value, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    assert(value !== undefined && value !== null, 'missing value')
+    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    assert(offset !== undefined && offset !== null, 'missing offset')
+    assert(offset + 1 < buf.length, 'Trying to write beyond buffer length')
+    verifsint(value, 0x7fff, -0x8000)
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  if (value >= 0)
+    writeUInt16(buf, value, offset, littleEndian, noAssert)
+  else
+    writeUInt16(buf, 0xffff + value + 1, offset, littleEndian, noAssert)
+  return offset + 2
+}
+
+Buffer.prototype.writeInt16LE = function (value, offset, noAssert) {
+  return writeInt16(this, value, offset, true, noAssert)
+}
+
+Buffer.prototype.writeInt16BE = function (value, offset, noAssert) {
+  return writeInt16(this, value, offset, false, noAssert)
+}
+
+function writeInt32 (buf, value, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    assert(value !== undefined && value !== null, 'missing value')
+    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    assert(offset !== undefined && offset !== null, 'missing offset')
+    assert(offset + 3 < buf.length, 'Trying to write beyond buffer length')
+    verifsint(value, 0x7fffffff, -0x80000000)
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  if (value >= 0)
+    writeUInt32(buf, value, offset, littleEndian, noAssert)
+  else
+    writeUInt32(buf, 0xffffffff + value + 1, offset, littleEndian, noAssert)
+  return offset + 4
+}
+
+Buffer.prototype.writeInt32LE = function (value, offset, noAssert) {
+  return writeInt32(this, value, offset, true, noAssert)
+}
+
+Buffer.prototype.writeInt32BE = function (value, offset, noAssert) {
+  return writeInt32(this, value, offset, false, noAssert)
+}
+
+function writeFloat (buf, value, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    assert(value !== undefined && value !== null, 'missing value')
+    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    assert(offset !== undefined && offset !== null, 'missing offset')
+    assert(offset + 3 < buf.length, 'Trying to write beyond buffer length')
+    verifIEEE754(value, 3.4028234663852886e+38, -3.4028234663852886e+38)
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  ieee754.write(buf, value, offset, littleEndian, 23, 4)
+  return offset + 4
+}
+
+Buffer.prototype.writeFloatLE = function (value, offset, noAssert) {
+  return writeFloat(this, value, offset, true, noAssert)
+}
+
+Buffer.prototype.writeFloatBE = function (value, offset, noAssert) {
+  return writeFloat(this, value, offset, false, noAssert)
+}
+
+function writeDouble (buf, value, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    assert(value !== undefined && value !== null, 'missing value')
+    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    assert(offset !== undefined && offset !== null, 'missing offset')
+    assert(offset + 7 < buf.length,
+        'Trying to write beyond buffer length')
+    verifIEEE754(value, 1.7976931348623157E+308, -1.7976931348623157E+308)
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  ieee754.write(buf, value, offset, littleEndian, 52, 8)
+  return offset + 8
+}
+
+Buffer.prototype.writeDoubleLE = function (value, offset, noAssert) {
+  return writeDouble(this, value, offset, true, noAssert)
+}
+
+Buffer.prototype.writeDoubleBE = function (value, offset, noAssert) {
+  return writeDouble(this, value, offset, false, noAssert)
+}
+
+// fill(value, start=0, end=buffer.length)
+Buffer.prototype.fill = function (value, start, end) {
+  if (!value) value = 0
+  if (!start) start = 0
+  if (!end) end = this.length
+
+  assert(end >= start, 'end < start')
+
+  // Fill 0 bytes; we're done
+  if (end === start) return
+  if (this.length === 0) return
+
+  assert(start >= 0 && start < this.length, 'start out of bounds')
+  assert(end >= 0 && end <= this.length, 'end out of bounds')
+
+  var i
+  if (typeof value === 'number') {
+    for (i = start; i < end; i++) {
+      this[i] = value
+    }
+  } else {
+    var bytes = utf8ToBytes(value.toString())
+    var len = bytes.length
+    for (i = start; i < end; i++) {
+      this[i] = bytes[i % len]
+    }
+  }
+
+  return this
+}
+
+Buffer.prototype.inspect = function () {
+  var out = []
+  var len = this.length
+  for (var i = 0; i < len; i++) {
+    out[i] = toHex(this[i])
+    if (i === exports.INSPECT_MAX_BYTES) {
+      out[i + 1] = '...'
+      break
+    }
+  }
+  return '<Buffer ' + out.join(' ') + '>'
+}
+
+/**
+ * Creates a new `ArrayBuffer` with the *copied* memory of the buffer instance.
+ * Added in Node 0.12. Only available in browsers that support ArrayBuffer.
+ */
+Buffer.prototype.toArrayBuffer = function () {
+  if (typeof Uint8Array !== 'undefined') {
+    if (Buffer._useTypedArrays) {
+      return (new Buffer(this)).buffer
+    } else {
+      var buf = new Uint8Array(this.length)
+      for (var i = 0, len = buf.length; i < len; i += 1) {
+        buf[i] = this[i]
+      }
+      return buf.buffer
+    }
+  } else {
+    throw new Error('Buffer.toArrayBuffer not supported in this browser')
+  }
+}
+
+// HELPER FUNCTIONS
+// ================
+
+var BP = Buffer.prototype
+
+/**
+ * Augment a Uint8Array *instance* (not the Uint8Array class!) with Buffer methods
+ */
+Buffer._augment = function (arr) {
+  arr._isBuffer = true
+
+  // save reference to original Uint8Array get/set methods before overwriting
+  arr._get = arr.get
+  arr._set = arr.set
+
+  // deprecated, will be removed in node 0.13+
+  arr.get = BP.get
+  arr.set = BP.set
+
+  arr.write = BP.write
+  arr.toString = BP.toString
+  arr.toLocaleString = BP.toString
+  arr.toJSON = BP.toJSON
+  arr.equals = BP.equals
+  arr.compare = BP.compare
+  arr.copy = BP.copy
+  arr.slice = BP.slice
+  arr.readUInt8 = BP.readUInt8
+  arr.readUInt16LE = BP.readUInt16LE
+  arr.readUInt16BE = BP.readUInt16BE
+  arr.readUInt32LE = BP.readUInt32LE
+  arr.readUInt32BE = BP.readUInt32BE
+  arr.readInt8 = BP.readInt8
+  arr.readInt16LE = BP.readInt16LE
+  arr.readInt16BE = BP.readInt16BE
+  arr.readInt32LE = BP.readInt32LE
+  arr.readInt32BE = BP.readInt32BE
+  arr.readFloatLE = BP.readFloatLE
+  arr.readFloatBE = BP.readFloatBE
+  arr.readDoubleLE = BP.readDoubleLE
+  arr.readDoubleBE = BP.readDoubleBE
+  arr.writeUInt8 = BP.writeUInt8
+  arr.writeUInt16LE = BP.writeUInt16LE
+  arr.writeUInt16BE = BP.writeUInt16BE
+  arr.writeUInt32LE = BP.writeUInt32LE
+  arr.writeUInt32BE = BP.writeUInt32BE
+  arr.writeInt8 = BP.writeInt8
+  arr.writeInt16LE = BP.writeInt16LE
+  arr.writeInt16BE = BP.writeInt16BE
+  arr.writeInt32LE = BP.writeInt32LE
+  arr.writeInt32BE = BP.writeInt32BE
+  arr.writeFloatLE = BP.writeFloatLE
+  arr.writeFloatBE = BP.writeFloatBE
+  arr.writeDoubleLE = BP.writeDoubleLE
+  arr.writeDoubleBE = BP.writeDoubleBE
+  arr.fill = BP.fill
+  arr.inspect = BP.inspect
+  arr.toArrayBuffer = BP.toArrayBuffer
+
+  return arr
+}
+
+function stringtrim (str) {
+  if (str.trim) return str.trim()
+  return str.replace(/^\s+|\s+$/g, '')
+}
+
+// slice(start, end)
+function clamp (index, len, defaultValue) {
+  if (typeof index !== 'number') return defaultValue
+  index = ~~index;  // Coerce to integer.
+  if (index >= len) return len
+  if (index >= 0) return index
+  index += len
+  if (index >= 0) return index
+  return 0
+}
+
+function coerce (length) {
+  // Coerce length to a number (possibly NaN), round up
+  // in case it's fractional (e.g. 123.456) then do a
+  // double negate to coerce a NaN to 0. Easy, right?
+  length = ~~Math.ceil(+length)
+  return length < 0 ? 0 : length
+}
+
+function isArray (subject) {
+  return (Array.isArray || function (subject) {
+    return Object.prototype.toString.call(subject) === '[object Array]'
+  })(subject)
+}
+
+function isArrayish (subject) {
+  return isArray(subject) || Buffer.isBuffer(subject) ||
+      subject && typeof subject === 'object' &&
+      typeof subject.length === 'number'
+}
+
+function toHex (n) {
+  if (n < 16) return '0' + n.toString(16)
+  return n.toString(16)
+}
+
+function utf8ToBytes (str) {
+  var byteArray = []
+  for (var i = 0; i < str.length; i++) {
+    var b = str.charCodeAt(i)
+    if (b <= 0x7F) {
+      byteArray.push(b)
+    } else {
+      var start = i
+      if (b >= 0xD800 && b <= 0xDFFF) i++
+      var h = encodeURIComponent(str.slice(start, i+1)).substr(1).split('%')
+      for (var j = 0; j < h.length; j++) {
+        byteArray.push(parseInt(h[j], 16))
+      }
+    }
+  }
+  return byteArray
+}
+
+function asciiToBytes (str) {
+  var byteArray = []
+  for (var i = 0; i < str.length; i++) {
+    // Node's code seems to be doing this and not & 0x7F..
+    byteArray.push(str.charCodeAt(i) & 0xFF)
+  }
+  return byteArray
+}
+
+function utf16leToBytes (str) {
+  var c, hi, lo
+  var byteArray = []
+  for (var i = 0; i < str.length; i++) {
+    c = str.charCodeAt(i)
+    hi = c >> 8
+    lo = c % 256
+    byteArray.push(lo)
+    byteArray.push(hi)
+  }
+
+  return byteArray
+}
+
+function base64ToBytes (str) {
+  return base64.toByteArray(str)
+}
+
+function blitBuffer (src, dst, offset, length) {
+  for (var i = 0; i < length; i++) {
+    if ((i + offset >= dst.length) || (i >= src.length))
+      break
+    dst[i + offset] = src[i]
+  }
+  return i
+}
+
+function decodeUtf8Char (str) {
+  try {
+    return decodeURIComponent(str)
+  } catch (err) {
+    return String.fromCharCode(0xFFFD) // UTF 8 invalid char
+  }
+}
+
+/*
+ * We have to make sure that the value is a valid integer. This means that it
+ * is non-negative. It has no fractional component and that it does not
+ * exceed the maximum allowed value.
+ */
+function verifuint (value, max) {
+  assert(typeof value === 'number', 'cannot write a non-number as a number')
+  assert(value >= 0, 'specified a negative value for writing an unsigned value')
+  assert(value <= max, 'value is larger than maximum value for type')
+  assert(Math.floor(value) === value, 'value has a fractional component')
+}
+
+function verifsint (value, max, min) {
+  assert(typeof value === 'number', 'cannot write a non-number as a number')
+  assert(value <= max, 'value larger than maximum allowed value')
+  assert(value >= min, 'value smaller than minimum allowed value')
+  assert(Math.floor(value) === value, 'value has a fractional component')
+}
+
+function verifIEEE754 (value, max, min) {
+  assert(typeof value === 'number', 'cannot write a non-number as a number')
+  assert(value <= max, 'value larger than maximum allowed value')
+  assert(value >= min, 'value smaller than minimum allowed value')
+}
+
+function assert (test, message) {
+  if (!test) throw new Error(message || 'Failed assertion')
+}
+
+},{"base64-js":88,"ieee754":89}],88:[function(require,module,exports){
+var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+;(function (exports) {
+	'use strict';
+
+  var Arr = (typeof Uint8Array !== 'undefined')
+    ? Uint8Array
+    : Array
+
+	var PLUS   = '+'.charCodeAt(0)
+	var SLASH  = '/'.charCodeAt(0)
+	var NUMBER = '0'.charCodeAt(0)
+	var LOWER  = 'a'.charCodeAt(0)
+	var UPPER  = 'A'.charCodeAt(0)
+
+	function decode (elt) {
+		var code = elt.charCodeAt(0)
+		if (code === PLUS)
+			return 62 // '+'
+		if (code === SLASH)
+			return 63 // '/'
+		if (code < NUMBER)
+			return -1 //no match
+		if (code < NUMBER + 10)
+			return code - NUMBER + 26 + 26
+		if (code < UPPER + 26)
+			return code - UPPER
+		if (code < LOWER + 26)
+			return code - LOWER + 26
+	}
+
+	function b64ToByteArray (b64) {
+		var i, j, l, tmp, placeHolders, arr
+
+		if (b64.length % 4 > 0) {
+			throw new Error('Invalid string. Length must be a multiple of 4')
+		}
+
+		// the number of equal signs (place holders)
+		// if there are two placeholders, than the two characters before it
+		// represent one byte
+		// if there is only one, then the three characters before it represent 2 bytes
+		// this is just a cheap hack to not do indexOf twice
+		var len = b64.length
+		placeHolders = '=' === b64.charAt(len - 2) ? 2 : '=' === b64.charAt(len - 1) ? 1 : 0
+
+		// base64 is 4/3 + up to two characters of the original data
+		arr = new Arr(b64.length * 3 / 4 - placeHolders)
+
+		// if there are placeholders, only get up to the last complete 4 chars
+		l = placeHolders > 0 ? b64.length - 4 : b64.length
+
+		var L = 0
+
+		function push (v) {
+			arr[L++] = v
+		}
+
+		for (i = 0, j = 0; i < l; i += 4, j += 3) {
+			tmp = (decode(b64.charAt(i)) << 18) | (decode(b64.charAt(i + 1)) << 12) | (decode(b64.charAt(i + 2)) << 6) | decode(b64.charAt(i + 3))
+			push((tmp & 0xFF0000) >> 16)
+			push((tmp & 0xFF00) >> 8)
+			push(tmp & 0xFF)
+		}
+
+		if (placeHolders === 2) {
+			tmp = (decode(b64.charAt(i)) << 2) | (decode(b64.charAt(i + 1)) >> 4)
+			push(tmp & 0xFF)
+		} else if (placeHolders === 1) {
+			tmp = (decode(b64.charAt(i)) << 10) | (decode(b64.charAt(i + 1)) << 4) | (decode(b64.charAt(i + 2)) >> 2)
+			push((tmp >> 8) & 0xFF)
+			push(tmp & 0xFF)
+		}
+
+		return arr
+	}
+
+	function uint8ToBase64 (uint8) {
+		var i,
+			extraBytes = uint8.length % 3, // if we have 1 byte left, pad 2 bytes
+			output = "",
+			temp, length
+
+		function encode (num) {
+			return lookup.charAt(num)
+		}
+
+		function tripletToBase64 (num) {
+			return encode(num >> 18 & 0x3F) + encode(num >> 12 & 0x3F) + encode(num >> 6 & 0x3F) + encode(num & 0x3F)
+		}
+
+		// go through the array every three bytes, we'll deal with trailing stuff later
+		for (i = 0, length = uint8.length - extraBytes; i < length; i += 3) {
+			temp = (uint8[i] << 16) + (uint8[i + 1] << 8) + (uint8[i + 2])
+			output += tripletToBase64(temp)
+		}
+
+		// pad the end with zeros, but make sure to not forget the extra bytes
+		switch (extraBytes) {
+			case 1:
+				temp = uint8[uint8.length - 1]
+				output += encode(temp >> 2)
+				output += encode((temp << 4) & 0x3F)
+				output += '=='
+				break
+			case 2:
+				temp = (uint8[uint8.length - 2] << 8) + (uint8[uint8.length - 1])
+				output += encode(temp >> 10)
+				output += encode((temp >> 4) & 0x3F)
+				output += encode((temp << 2) & 0x3F)
+				output += '='
+				break
+		}
+
+		return output
+	}
+
+	exports.toByteArray = b64ToByteArray
+	exports.fromByteArray = uint8ToBase64
+}(typeof exports === 'undefined' ? (this.base64js = {}) : exports))
+
+},{}],89:[function(require,module,exports){
+exports.read = function(buffer, offset, isLE, mLen, nBytes) {
+  var e, m,
+      eLen = nBytes * 8 - mLen - 1,
+      eMax = (1 << eLen) - 1,
+      eBias = eMax >> 1,
+      nBits = -7,
+      i = isLE ? (nBytes - 1) : 0,
+      d = isLE ? -1 : 1,
+      s = buffer[offset + i];
+
+  i += d;
+
+  e = s & ((1 << (-nBits)) - 1);
+  s >>= (-nBits);
+  nBits += eLen;
+  for (; nBits > 0; e = e * 256 + buffer[offset + i], i += d, nBits -= 8);
+
+  m = e & ((1 << (-nBits)) - 1);
+  e >>= (-nBits);
+  nBits += mLen;
+  for (; nBits > 0; m = m * 256 + buffer[offset + i], i += d, nBits -= 8);
+
+  if (e === 0) {
+    e = 1 - eBias;
+  } else if (e === eMax) {
+    return m ? NaN : ((s ? -1 : 1) * Infinity);
+  } else {
+    m = m + Math.pow(2, mLen);
+    e = e - eBias;
+  }
+  return (s ? -1 : 1) * m * Math.pow(2, e - mLen);
+};
+
+exports.write = function(buffer, value, offset, isLE, mLen, nBytes) {
+  var e, m, c,
+      eLen = nBytes * 8 - mLen - 1,
+      eMax = (1 << eLen) - 1,
+      eBias = eMax >> 1,
+      rt = (mLen === 23 ? Math.pow(2, -24) - Math.pow(2, -77) : 0),
+      i = isLE ? 0 : (nBytes - 1),
+      d = isLE ? 1 : -1,
+      s = value < 0 || (value === 0 && 1 / value < 0) ? 1 : 0;
+
+  value = Math.abs(value);
+
+  if (isNaN(value) || value === Infinity) {
+    m = isNaN(value) ? 1 : 0;
+    e = eMax;
+  } else {
+    e = Math.floor(Math.log(value) / Math.LN2);
+    if (value * (c = Math.pow(2, -e)) < 1) {
+      e--;
+      c *= 2;
+    }
+    if (e + eBias >= 1) {
+      value += rt / c;
+    } else {
+      value += rt * Math.pow(2, 1 - eBias);
+    }
+    if (value * c >= 2) {
+      e++;
+      c /= 2;
+    }
+
+    if (e + eBias >= eMax) {
+      m = 0;
+      e = eMax;
+    } else if (e + eBias >= 1) {
+      m = (value * c - 1) * Math.pow(2, mLen);
+      e = e + eBias;
+    } else {
+      m = value * Math.pow(2, eBias - 1) * Math.pow(2, mLen);
+      e = 0;
+    }
+  }
+
+  for (; mLen >= 8; buffer[offset + i] = m & 0xff, i += d, m /= 256, mLen -= 8);
+
+  e = (e << mLen) | m;
+  eLen += mLen;
+  for (; eLen > 0; buffer[offset + i] = e & 0xff, i += d, e /= 256, eLen -= 8);
+
+  buffer[offset + i - d] |= s * 128;
+};
+
+},{}],90:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -23995,7 +30126,32 @@ function isUndefined(arg) {
   return arg === void 0;
 }
 
-},{}],32:[function(require,module,exports){
+},{}],91:[function(require,module,exports){
+if (typeof Object.create === 'function') {
+  // implementation from standard node.js 'util' module
+  module.exports = function inherits(ctor, superCtor) {
+    ctor.super_ = superCtor
+    ctor.prototype = Object.create(superCtor.prototype, {
+      constructor: {
+        value: ctor,
+        enumerable: false,
+        writable: true,
+        configurable: true
+      }
+    });
+  };
+} else {
+  // old school shim for old browsers
+  module.exports = function inherits(ctor, superCtor) {
+    ctor.super_ = superCtor
+    var TempCtor = function () {}
+    TempCtor.prototype = superCtor.prototype
+    ctor.prototype = new TempCtor()
+    ctor.prototype.constructor = ctor
+  }
+}
+
+},{}],92:[function(require,module,exports){
 // shim for using process in browser
 
 var process = module.exports = {};
@@ -24060,4 +30216,4 @@ process.chdir = function (dir) {
     throw new Error('process.chdir is not supported');
 };
 
-},{}]},{},[29])
+},{}]},{},[77])
