@@ -1,13 +1,15 @@
 const Stoker = require('./stoker')
-const { loadSessions, createSession } = require('./sessions')
+const { loadSessions, createSession, saveSession } = require('./sessions')
 const path = require('path')
 const express = require('express')
 const WebSocket = require('ws')
+const mkdirp = require('mkdirp')
 
 let stoker = null
 
-const SESSION_DIR = path.join('.', 'sessions')
-const sessions = loadSessions(SESSION_DIR)
+let sessionDir = path.join('.', 'sessions')
+let sessions = []
+let currentSession = null
 
 const app = express()
 
@@ -15,15 +17,17 @@ function setupStoker (ip) {
   stoker = new Stoker(ip)
 
   // Start a new session
-  sessions.push(createSession())
+  currentSession = createSession()
+  sessions.push(currentSession)
+  saveSession(currentSession, sessionDir)
 
   stoker.on('temp', (data) => {
     console.log(data.name + ' : ' + data.temperature)
   })
 
   stoker.on('data', (data) => {
-    const currentSession = sessions[sessions.length - 1]
     currentSession.data.push(data)
+    saveSession(currentSession, sessionDir)
   })
 
   stoker.on('error', (e) => {
@@ -80,6 +84,13 @@ app.on('stoker:setwsport', (port) => {
 
   app.get('/ws-port', (req, res) => {
     res.send(JSON.stringify(port))
+  })
+})
+
+app.on('sessions:set-dir', (dir) => {
+  sessionDir = dir
+  mkdirp(sessionDir, () => {
+    sessions = sessions.concat(loadSessions(sessionDir))
   })
 })
 

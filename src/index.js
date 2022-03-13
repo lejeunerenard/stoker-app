@@ -9,6 +9,7 @@ const Store = require('electron-store')
 const STOKER_IP = '192.168.1.31'
 
 const stokerServer = require('./stoker-server')
+stokerServer.emit('sessions:set-dir', path.join(app.getPath('appData'), 'stoker-sessions'))
 const store = new Store({
   name: 'stoker-ii'
 })

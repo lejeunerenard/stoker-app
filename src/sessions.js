@@ -37,7 +37,7 @@ function createSession (name) {
 }
 
 function saveSession (session, dir) {
-  const json = JSON.stringify(session.data, null, 2)
+  const json = JSON.stringify(session, null, 2)
   fs.writeFileSync(path.join(dir, session.filename), json, 'utf8')
 }
 module.exports = { loadSessions, createSession, saveSession }
