@@ -89,7 +89,7 @@ app.on('stoker:setwsport', (port) => {
 
 app.on('sessions:set-dir', (dir) => {
   sessionDir = dir
-  mkdirp(sessionDir, () => {
+  mkdirp(sessionDir).then(() => {
     sessions = sessions.concat(loadSessions(sessionDir))
   })
 })
