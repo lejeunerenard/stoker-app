@@ -82,6 +82,11 @@ class StokerServer {
                 }))
               }
               break
+            case 'store:set':
+              if (data[0] === 'stokerIP') {
+                this.emit('stoker:setip', data[1])
+              }
+              break
           }
         })
       })

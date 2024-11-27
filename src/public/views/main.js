@@ -1,8 +1,10 @@
 const html = require('choo/html')
+const { textField } = require('./components/fields')
 const renderLatest = require('./latest-stats')
 
 function mainView (state, emit) {
   const latestStats = renderLatest(state)
+  const formState = state.formState
 
   return html`
 <div>
@@ -16,11 +18,38 @@ function mainView (state, emit) {
           html`<option value="${i}" ${i === state.sessionID ? 'selected' : ''}>${session.name}</option>`
           )}
       </select>
+      <form class="pa4 black-80" onsubmit=${onSubmit} action="stoker-settings">
+        <article class="cf">
+          <div class="fl w-100 w-50-ns pa2">
+            ${textField('stokerIP',
+              'Stoker IP',
+              formState.stokerIP, {
+              oninput: stokerIPOnInput
+              })
+            }
+            <div class="measure">
+              <input type="submit" value="Save Settings" class="b ph3 pv2 input-reset bn bg-green grow pointer f6 dib white">
+            </div>
+          </div>
+        </article>
+      </form>
       <div class="latest-stats">
         ${latestStats}
       </div>
     </div>
 </div>`
+
+  function stokerIPOnInput () {
+    emit(state.events.FORMSTATE_FIELDUPDATE, 'stokerIP', this.value)
+  }
+
+  function onSubmit (e) {
+    e.preventDefault()
+    const form = this
+    const basePath = window.location.href.replace(/\/[^/]*.html/, '/')
+    const action = form.action.replace(basePath, '')
+    emit(`form-submit:${action}`, new FormData(form))
+  }
 
   function onChangeSession (e) {
     e.preventDefault()

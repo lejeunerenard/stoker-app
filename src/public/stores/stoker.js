@@ -21,6 +21,21 @@ function stokerStore (state, emitter) {
     }
   })
 
+  emitter.on('form-submit:stoker-settings', (formData) => {
+    state.errors = []
+
+    const initialStokerIP = state.stokerIP
+    for (const [key, value] of formData) {
+      state[key] = value
+    }
+
+    if (initialStokerIP !== state.stokerIP) {
+      emitter.emit('store:set', 'stokerIP', state.stokerIP)
+      state.errors.push(`Stoker ip changed to ${state.stokerIP}`)
+    }
+    emitter.emit(state.events.RENDER)
+  })
+
   emitter.on('stoker:not-found', () => {
     state.errors = []
     state.errors.push(`Stoker cannot be found at ${state.stokerIP}`)

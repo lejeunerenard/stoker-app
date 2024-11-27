@@ -118,6 +118,14 @@ if (store.get('stokerIP')) {
   stokerServer.emit('stoker:setip', STOKER_IP)
   store.set('stokerIP', STOKER_IP)
 }
+store.onDidChange('stokerIP', (newIP, oldIP) => {
+  if (newIP !== oldIP) {
+    stokerServer.emit('stoker:setip', newIP)
+  }
+})
+stokerServer.on('stoker:setip', (ip) => {
+  store.set('stokerIP', ip)
+})
 
 // Get WS PORT
 function portInUse (port, callback) {

@@ -9,6 +9,9 @@ function busStore (state, emitter) {
       bus.on('store:get', (field) => {
         ws.send(JSON.stringify({ event: 'store:get', data: field }))
       })
+      bus.on('store:set', (field, value) => {
+        ws.send(JSON.stringify({ event: 'store:set', data: [field, value] }))
+      })
 
       // Now connection is open, get info
       bus.emit('store:get', 'stokerIP')
