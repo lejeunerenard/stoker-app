@@ -6,7 +6,7 @@
   "scripts": {
     "build": "browserify src/public/app.js -o src/public/bundle.js",
     "update-env": "echo '{ \"code_version\": \"'`git rev-parse HEAD`'\"}' > src/env.json",
-    "test": "eslint **/*.js",
+    "test": "eslint src/**/*.js; tape tests/**.js",
     "start": "npm run update-env; cross-env ELECTRON_ENV=development electron-forge start",
     "package": "npm run update-env; electron-forge package",
     "make": "npm run update-env; electron-forge make"
@@ -26,7 +26,8 @@
     "eslint-config-standard": "^16.0.2",
     "eslint-plugin-import": "^2.22.1",
     "eslint-plugin-node": "^11.1.0",
-    "eslint-plugin-promise": "^4.2.1"
+    "eslint-plugin-promise": "^4.2.1",
+    "tape": "^5.7.2"
   },
   "dependencies": {
     "axios": "^0.21.0",

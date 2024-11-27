@@ -19,6 +19,7 @@ class Stoker extends EventEmitter {
       }
     })
 
+    this._pollInterval = null
     this.pollData(pollPeriod)
   }
 
@@ -43,7 +44,8 @@ class Stoker extends EventEmitter {
   }
 
   pollData (period) {
-    setInterval(this.getData.bind(this), period)
+    clearInterval(this._pollInterval)
+    this._pollInterval = setInterval(this.getData.bind(this), period)
   }
 
   async setBlower (on, sensorIds = [], blowerId) {
@@ -67,6 +69,10 @@ class Stoker extends EventEmitter {
     ).catch((e) => {
       this.emit('error', e)
     })
+  }
+
+  close () {
+    clearInterval(this._pollInterval)
   }
 }
 module.exports = Stoker
