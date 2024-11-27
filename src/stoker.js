@@ -7,6 +7,7 @@ class Stoker extends EventEmitter {
     super()
     this.ip = ip
     this.state = {}
+    this.closed = false
 
     this.on('data', (data) => {
       if (data.stoker.sensors) {
@@ -73,6 +74,7 @@ class Stoker extends EventEmitter {
 
   close () {
     clearInterval(this._pollInterval)
+    this.closed = true
   }
 }
 module.exports = Stoker
