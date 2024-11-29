@@ -8,6 +8,8 @@ const mkdirp = require('mkdirp')
 class StokerServer {
   constructor () {
     this.stoker = null
+    this.wss = null
+    this.pollPeriod = 5 * 1000
 
     let sessionDir = path.join('.', 'sessions')
     let sessions = []
@@ -18,7 +20,7 @@ class StokerServer {
     const setupStoker = (ip) => {
       if (this.stoker) this.stoker.close()
 
-      this.stoker = new Stoker(ip)
+      this.stoker = new Stoker(ip, this.pollPeriod)
 
       // Start a new session
       currentSession = createSession()
@@ -35,7 +37,7 @@ class StokerServer {
       })
 
       this.stoker.on('error', (e) => {
-        if (e.code === 'EHOSTUNREACH' || e.code === 'EHOSTDOWN' || e.code === 'ETIMEDOUT') {
+        if (e.code === 'EHOSTUNREACH' || e.code === 'EHOSTDOWN' || e.code === 'ETIMEDOUT' || e.code === 'ECONNABORTED') {
           app.emit('stoker:not-found')
         } else {
           throw e
@@ -45,8 +47,10 @@ class StokerServer {
 
     app.on('stoker:setip', setupStoker)
     app.on('stoker:setwsport', (port) => {
-      const wss = new WebSocket.Server({ port })
-      wss.on('connection', (ws) => {
+      if (this.wss) this.wss.close()
+
+      this.wss = new WebSocket.Server({ port })
+      this.wss.on('connection', (ws) => {
         console.log('client connected')
 
         this.stoker.on('data', (data) => {
@@ -138,6 +142,11 @@ class StokerServer {
 
   listen (...args) {
     this.app.listen(...args)
+  }
+
+  close () {
+    if (this.wss) this.wss.close()
+    if (this.stoker) this.stoker.close()
   }
 }
 
