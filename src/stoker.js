@@ -26,7 +26,8 @@ class Stoker extends EventEmitter {
 
   getData () {
     return axios.get('http://' + this.ip + '/stoker.json?version=true', {
-      responseType: 'json'
+      responseType: 'json',
+      timeout: 5 * 1000
     })
       .then((response) => {
         this.state = response.data
