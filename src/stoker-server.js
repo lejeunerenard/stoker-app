@@ -13,7 +13,10 @@ class StokerServer {
 
     let sessionDir = path.join('.', 'sessions')
     let sessions = []
-    let currentSession = null
+    // Start a new session
+    const currentSession = createSession()
+    sessions.push(currentSession)
+    saveSession(currentSession, sessionDir)
 
     const app = express()
 
@@ -21,11 +24,6 @@ class StokerServer {
       if (this.stoker) this.stoker.close()
 
       this.stoker = new Stoker(ip, this.pollPeriod)
-
-      // Start a new session
-      currentSession = createSession()
-      sessions.push(currentSession)
-      saveSession(currentSession, sessionDir)
 
       this.stoker.on('temp', (data) => {
         console.log(data.name + ' : ' + data.temperature)
