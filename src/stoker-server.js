@@ -139,7 +139,7 @@ class StokerServer {
   }
 
   listen (...args) {
-    this.app.listen(...args)
+    return this.app.listen(...args)
   }
 
   close () {

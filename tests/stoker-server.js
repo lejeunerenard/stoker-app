@@ -45,16 +45,17 @@ test('Stoker server', (t) => {
     t.test('event : stoker:not-found', async (t) => {
       t.plan(1)
       const ip = '123.123.123.123'
+      const PORT = 1337
       const ss = new StokerServer()
       ss.emit('stoker:setip', ip)
 
-      ss.emit('stoker:setwsport', 1337)
+      ss.emit('stoker:setwsport', PORT)
 
       const bus = new EventEmitter()
       bus.on('stoker:not-found', () => {
         t.pass('Got not found error')
       })
-      createWS(1337, bus)
+      createWS(PORT, bus)
 
       // Allow not found to trigger
       await setTimeout(2.01 * ss.pollPeriod)
