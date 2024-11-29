@@ -42,7 +42,7 @@ test('Stoker server', (t) => {
   })
 
   t.test('websocket', (t) => {
-    t.test('event : data', async (t) => {
+    t.test('event : stoker:not-found', async (t) => {
       t.plan(1)
       const ip = '123.123.123.123'
       const ss = new StokerServer()
