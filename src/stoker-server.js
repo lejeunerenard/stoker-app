@@ -93,7 +93,7 @@ class StokerServer {
         })
       })
 
-      app.get('/ws-port', (req, res) => {
+      app.get('/ws-port', (_, res) => {
         res.send(JSON.stringify(port))
       })
     })
