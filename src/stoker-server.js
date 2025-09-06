@@ -16,7 +16,6 @@ class StokerServer {
     // Start a new session
     const currentSession = createSession()
     sessions.push(currentSession)
-    saveSession(currentSession, sessionDir)
 
     const app = express()
     this.app = app
