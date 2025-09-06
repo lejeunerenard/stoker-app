@@ -6,8 +6,16 @@ An app for tracking and controlling a stoker for grills & smokers.
 
 Need Node.js & `npm` installed.
 
+### Setup
+
 ```console
 npm install
+```
+
+### Building spec
+
+```console
+npm run build
 ```
 
 ### Running

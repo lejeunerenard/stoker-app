@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "schema": [
+    {
+      "name": "config",
+      "namespace": "stoker-app",
+      "compact": true,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "key",
+          "required": true,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "value",
+          "required": true,
+          "type": "json",
+          "version": 1
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "version": 0,
+  "offset": 0,
+  "schema": [
+    {
+      "name": "config",
+      "namespace": "stoker-app",
+      "id": 0,
+      "type": 1,
+      "indexes": [],
+      "schema": "@stoker-app/config",
+      "derived": false,
+      "key": [
+        "key"
+      ],
+      "trigger": null
+    }
+  ]
+}

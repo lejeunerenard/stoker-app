@@ -9,10 +9,10 @@
     "gui": {}
   },
   "scripts": {
-    "build": "browserify src/public/app.js -o src/public/bundle.js",
+    "build": "node build.mjs",
     "update-env": "echo '{ \"code_version\": \"'`git rev-parse HEAD`'\"}' > src/env.json",
     "lint": "eslint src/**/*.js",
-    "test": "npm run lint; tape tests/**.js",
+    "test": "npm run lint; tape tests/**.js tests/**.mjs",
     "start": "npm run update-env; cross-env ELECTRON_ENV=development electron-forge start",
     "package": "npm run update-env; electron-forge package",
     "make": "npm run update-env; electron-forge make"
@@ -27,7 +27,8 @@
     "eslint-plugin-import": "^2.31.0",
     "eslint-plugin-node": "^11.1.0",
     "eslint-plugin-promise": "^4.2.1",
-    "tape": "^5.7.2"
+    "tape": "^5.7.2",
+    "test-tmp": "^1.4.0"
   },
   "dependencies": {
     "axios": "^0.21.0",
@@ -36,6 +37,8 @@
     "choo-devtools": "^3.0.4",
     "electron-store": "^6.0.1",
     "express": "^4.21.1",
+    "hyperdb": "^4.16.1",
+    "hyperschema": "^1.14.0",
     "mkdirp": "^1.0.4",
     "ws": "^7.5.10"
   }
