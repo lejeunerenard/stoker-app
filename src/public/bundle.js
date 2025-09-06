@@ -16,6 +16,7 @@ module.exports = function xhrAdapter(config) {
   return new Promise(function dispatchXhrRequest(resolve, reject) {
     var requestData = config.data;
     var requestHeaders = config.headers;
+    var responseType = config.responseType;
 
     if (utils.isFormData(requestData)) {
       delete requestHeaders['Content-Type']; // Let the browser set it
@@ -36,23 +37,14 @@ module.exports = function xhrAdapter(config) {
     // Set the request timeout in MS
     request.timeout = config.timeout;
 
-    // Listen for ready state
-    request.onreadystatechange = function handleLoad() {
-      if (!request || request.readyState !== 4) {
+    function onloadend() {
+      if (!request) {
         return;
       }
-
-      // The request errored out and we didn't get a response, this will be
-      // handled by onerror instead
-      // With one exception: request that using file: protocol, most browsers
-      // will return status as 0 even though it's a successful request
-      if (request.status === 0 && !(request.responseURL && request.responseURL.indexOf('file:') === 0)) {
-        return;
-      }
-
       // Prepare the response
       var responseHeaders = 'getAllResponseHeaders' in request ? parseHeaders(request.getAllResponseHeaders()) : null;
-      var responseData = !config.responseType || config.responseType === 'text' ? request.responseText : request.response;
+      var responseData = !responseType || responseType === 'text' ||  responseType === 'json' ?
+        request.responseText : request.response;
       var response = {
         data: responseData,
         status: request.status,
@@ -66,7 +58,30 @@ module.exports = function xhrAdapter(config) {
 
       // Clean up request
       request = null;
-    };
+    }
+
+    if ('onloadend' in request) {
+      // Use onloadend if available
+      request.onloadend = onloadend;
+    } else {
+      // Listen for ready state to emulate onloadend
+      request.onreadystatechange = function handleLoad() {
+        if (!request || request.readyState !== 4) {
+          return;
+        }
+
+        // The request errored out and we didn't get a response, this will be
+        // handled by onerror instead
+        // With one exception: request that using file: protocol, most browsers
+        // will return status as 0 even though it's a successful request
+        if (request.status === 0 && !(request.responseURL && request.responseURL.indexOf('file:') === 0)) {
+          return;
+        }
+        // readystate handler is calling before onerror or ontimeout handlers,
+        // so we should call onloadend on the next 'tick'
+        setTimeout(onloadend);
+      };
+    }
 
     // Handle browser request cancellation (as opposed to a manual cancellation)
     request.onabort = function handleAbort() {
@@ -96,7 +111,10 @@ module.exports = function xhrAdapter(config) {
       if (config.timeoutErrorMessage) {
         timeoutErrorMessage = config.timeoutErrorMessage;
       }
-      reject(createError(timeoutErrorMessage, config, 'ECONNABORTED',
+      reject(createError(
+        timeoutErrorMessage,
+        config,
+        config.transitional && config.transitional.clarifyTimeoutError ? 'ETIMEDOUT' : 'ECONNABORTED',
         request));
 
       // Clean up request
@@ -136,16 +154,8 @@ module.exports = function xhrAdapter(config) {
     }
 
     // Add responseType to request if needed
-    if (config.responseType) {
-      try {
-        request.responseType = config.responseType;
-      } catch (e) {
-        // Expected DOMException thrown by browsers not compatible XMLHttpRequest Level 2.
-        // But, this can be suppressed for 'json' type as it can be parsed by default 'transformResponse' function.
-        if (config.responseType !== 'json') {
-          throw e;
-        }
-      }
+    if (responseType && responseType !== 'json') {
+      request.responseType = config.responseType;
     }
 
     // Handle progress if needed
@@ -181,7 +191,7 @@ module.exports = function xhrAdapter(config) {
   });
 };
 
-},{"../core/buildFullPath":9,"../core/createError":10,"./../core/settle":14,"./../helpers/buildURL":18,"./../helpers/cookies":20,"./../helpers/isURLSameOrigin":22,"./../helpers/parseHeaders":24,"./../utils":26}],3:[function(require,module,exports){
+},{"../core/buildFullPath":9,"../core/createError":10,"./../core/settle":14,"./../helpers/buildURL":18,"./../helpers/cookies":20,"./../helpers/isURLSameOrigin":23,"./../helpers/parseHeaders":25,"./../utils":28}],3:[function(require,module,exports){
 'use strict';
 
 var utils = require('./utils');
@@ -231,12 +241,15 @@ axios.all = function all(promises) {
 };
 axios.spread = require('./helpers/spread');
 
+// Expose isAxiosError
+axios.isAxiosError = require('./helpers/isAxiosError');
+
 module.exports = axios;
 
 // Allow use of default import syntax in TypeScript
 module.exports.default = axios;
 
-},{"./cancel/Cancel":4,"./cancel/CancelToken":5,"./cancel/isCancel":6,"./core/Axios":7,"./core/mergeConfig":13,"./defaults":16,"./helpers/bind":17,"./helpers/spread":25,"./utils":26}],4:[function(require,module,exports){
+},{"./cancel/Cancel":4,"./cancel/CancelToken":5,"./cancel/isCancel":6,"./core/Axios":7,"./core/mergeConfig":13,"./defaults":16,"./helpers/bind":17,"./helpers/isAxiosError":22,"./helpers/spread":26,"./utils":28}],4:[function(require,module,exports){
 'use strict';
 
 /**
@@ -331,7 +344,9 @@ var buildURL = require('../helpers/buildURL');
 var InterceptorManager = require('./InterceptorManager');
 var dispatchRequest = require('./dispatchRequest');
 var mergeConfig = require('./mergeConfig');
+var validator = require('../helpers/validator');
 
+var validators = validator.validators;
 /**
  * Create a new instance of Axios
  *
@@ -371,20 +386,71 @@ Axios.prototype.request = function request(config) {
     config.method = 'get';
   }
 
-  // Hook up interceptors middleware
-  var chain = [dispatchRequest, undefined];
-  var promise = Promise.resolve(config);
+  var transitional = config.transitional;
 
+  if (transitional !== undefined) {
+    validator.assertOptions(transitional, {
+      silentJSONParsing: validators.transitional(validators.boolean, '1.0.0'),
+      forcedJSONParsing: validators.transitional(validators.boolean, '1.0.0'),
+      clarifyTimeoutError: validators.transitional(validators.boolean, '1.0.0')
+    }, false);
+  }
+
+  // filter out skipped interceptors
+  var requestInterceptorChain = [];
+  var synchronousRequestInterceptors = true;
   this.interceptors.request.forEach(function unshiftRequestInterceptors(interceptor) {
-    chain.unshift(interceptor.fulfilled, interceptor.rejected);
+    if (typeof interceptor.runWhen === 'function' && interceptor.runWhen(config) === false) {
+      return;
+    }
+
+    synchronousRequestInterceptors = synchronousRequestInterceptors && interceptor.synchronous;
+
+    requestInterceptorChain.unshift(interceptor.fulfilled, interceptor.rejected);
   });
 
+  var responseInterceptorChain = [];
   this.interceptors.response.forEach(function pushResponseInterceptors(interceptor) {
-    chain.push(interceptor.fulfilled, interceptor.rejected);
+    responseInterceptorChain.push(interceptor.fulfilled, interceptor.rejected);
   });
 
-  while (chain.length) {
-    promise = promise.then(chain.shift(), chain.shift());
+  var promise;
+
+  if (!synchronousRequestInterceptors) {
+    var chain = [dispatchRequest, undefined];
+
+    Array.prototype.unshift.apply(chain, requestInterceptorChain);
+    chain = chain.concat(responseInterceptorChain);
+
+    promise = Promise.resolve(config);
+    while (chain.length) {
+      promise = promise.then(chain.shift(), chain.shift());
+    }
+
+    return promise;
+  }
+
+
+  var newConfig = config;
+  while (requestInterceptorChain.length) {
+    var onFulfilled = requestInterceptorChain.shift();
+    var onRejected = requestInterceptorChain.shift();
+    try {
+      newConfig = onFulfilled(newConfig);
+    } catch (error) {
+      onRejected(error);
+      break;
+    }
+  }
+
+  try {
+    promise = dispatchRequest(newConfig);
+  } catch (error) {
+    return Promise.reject(error);
+  }
+
+  while (responseInterceptorChain.length) {
+    promise = promise.then(responseInterceptorChain.shift(), responseInterceptorChain.shift());
   }
 
   return promise;
@@ -420,7 +486,7 @@ utils.forEach(['post', 'put', 'patch'], function forEachMethodWithData(method) {
 
 module.exports = Axios;
 
-},{"../helpers/buildURL":18,"./../utils":26,"./InterceptorManager":8,"./dispatchRequest":11,"./mergeConfig":13}],8:[function(require,module,exports){
+},{"../helpers/buildURL":18,"../helpers/validator":27,"./../utils":28,"./InterceptorManager":8,"./dispatchRequest":11,"./mergeConfig":13}],8:[function(require,module,exports){
 'use strict';
 
 var utils = require('./../utils');
@@ -437,10 +503,12 @@ function InterceptorManager() {
  *
  * @return {Number} An ID used to remove interceptor later
  */
-InterceptorManager.prototype.use = function use(fulfilled, rejected) {
+InterceptorManager.prototype.use = function use(fulfilled, rejected, options) {
   this.handlers.push({
     fulfilled: fulfilled,
-    rejected: rejected
+    rejected: rejected,
+    synchronous: options ? options.synchronous : false,
+    runWhen: options ? options.runWhen : null
   });
   return this.handlers.length - 1;
 };
@@ -474,7 +542,7 @@ InterceptorManager.prototype.forEach = function forEach(fn) {
 
 module.exports = InterceptorManager;
 
-},{"./../utils":26}],9:[function(require,module,exports){
+},{"./../utils":28}],9:[function(require,module,exports){
 'use strict';
 
 var isAbsoluteURL = require('../helpers/isAbsoluteURL');
@@ -546,7 +614,8 @@ module.exports = function dispatchRequest(config) {
   config.headers = config.headers || {};
 
   // Transform request data
-  config.data = transformData(
+  config.data = transformData.call(
+    config,
     config.data,
     config.headers,
     config.transformRequest
@@ -572,7 +641,8 @@ module.exports = function dispatchRequest(config) {
     throwIfCancellationRequested(config);
 
     // Transform response data
-    response.data = transformData(
+    response.data = transformData.call(
+      config,
       response.data,
       response.headers,
       config.transformResponse
@@ -585,7 +655,8 @@ module.exports = function dispatchRequest(config) {
 
       // Transform response data
       if (reason && reason.response) {
-        reason.response.data = transformData(
+        reason.response.data = transformData.call(
+          config,
           reason.response.data,
           reason.response.headers,
           config.transformResponse
@@ -597,7 +668,7 @@ module.exports = function dispatchRequest(config) {
   });
 };
 
-},{"../cancel/isCancel":6,"../defaults":16,"./../utils":26,"./transformData":15}],12:[function(require,module,exports){
+},{"../cancel/isCancel":6,"../defaults":16,"./../utils":28,"./transformData":15}],12:[function(require,module,exports){
 'use strict';
 
 /**
@@ -730,7 +801,7 @@ module.exports = function mergeConfig(config1, config2) {
   return config;
 };
 
-},{"../utils":26}],14:[function(require,module,exports){
+},{"../utils":28}],14:[function(require,module,exports){
 'use strict';
 
 var createError = require('./createError');
@@ -761,6 +832,7 @@ module.exports = function settle(resolve, reject, response) {
 'use strict';
 
 var utils = require('./../utils');
+var defaults = require('./../defaults');
 
 /**
  * Transform the data for a request or a response
@@ -771,20 +843,22 @@ var utils = require('./../utils');
  * @returns {*} The resulting transformed data
  */
 module.exports = function transformData(data, headers, fns) {
+  var context = this || defaults;
   /*eslint no-param-reassign:0*/
   utils.forEach(fns, function transform(fn) {
-    data = fn(data, headers);
+    data = fn.call(context, data, headers);
   });
 
   return data;
 };
 
-},{"./../utils":26}],16:[function(require,module,exports){
+},{"./../defaults":16,"./../utils":28}],16:[function(require,module,exports){
 (function (process){
 'use strict';
 
 var utils = require('./utils');
 var normalizeHeaderName = require('./helpers/normalizeHeaderName');
+var enhanceError = require('./core/enhanceError');
 
 var DEFAULT_CONTENT_TYPE = {
   'Content-Type': 'application/x-www-form-urlencoded'
@@ -808,12 +882,35 @@ function getDefaultAdapter() {
   return adapter;
 }
 
+function stringifySafely(rawValue, parser, encoder) {
+  if (utils.isString(rawValue)) {
+    try {
+      (parser || JSON.parse)(rawValue);
+      return utils.trim(rawValue);
+    } catch (e) {
+      if (e.name !== 'SyntaxError') {
+        throw e;
+      }
+    }
+  }
+
+  return (encoder || JSON.stringify)(rawValue);
+}
+
 var defaults = {
+
+  transitional: {
+    silentJSONParsing: true,
+    forcedJSONParsing: true,
+    clarifyTimeoutError: false
+  },
+
   adapter: getDefaultAdapter(),
 
   transformRequest: [function transformRequest(data, headers) {
     normalizeHeaderName(headers, 'Accept');
     normalizeHeaderName(headers, 'Content-Type');
+
     if (utils.isFormData(data) ||
       utils.isArrayBuffer(data) ||
       utils.isBuffer(data) ||
@@ -830,20 +927,32 @@ var defaults = {
       setContentTypeIfUnset(headers, 'application/x-www-form-urlencoded;charset=utf-8');
       return data.toString();
     }
-    if (utils.isObject(data)) {
-      setContentTypeIfUnset(headers, 'application/json;charset=utf-8');
-      return JSON.stringify(data);
+    if (utils.isObject(data) || (headers && headers['Content-Type'] === 'application/json')) {
+      setContentTypeIfUnset(headers, 'application/json');
+      return stringifySafely(data);
     }
     return data;
   }],
 
   transformResponse: [function transformResponse(data) {
-    /*eslint no-param-reassign:0*/
-    if (typeof data === 'string') {
+    var transitional = this.transitional;
+    var silentJSONParsing = transitional && transitional.silentJSONParsing;
+    var forcedJSONParsing = transitional && transitional.forcedJSONParsing;
+    var strictJSONParsing = !silentJSONParsing && this.responseType === 'json';
+
+    if (strictJSONParsing || (forcedJSONParsing && utils.isString(data) && data.length)) {
       try {
-        data = JSON.parse(data);
-      } catch (e) { /* Ignore */ }
+        return JSON.parse(data);
+      } catch (e) {
+        if (strictJSONParsing) {
+          if (e.name === 'SyntaxError') {
+            throw enhanceError(e, this, 'E_JSON_PARSE');
+          }
+          throw e;
+        }
+      }
     }
+
     return data;
   }],
 
@@ -881,7 +990,7 @@ utils.forEach(['post', 'put', 'patch'], function forEachMethodWithData(method) {
 module.exports = defaults;
 
 }).call(this,require("sycGbZ"))
-},{"./adapters/http":2,"./adapters/xhr":2,"./helpers/normalizeHeaderName":23,"./utils":26,"sycGbZ":92}],17:[function(require,module,exports){
+},{"./adapters/http":2,"./adapters/xhr":2,"./core/enhanceError":12,"./helpers/normalizeHeaderName":24,"./utils":28,"sycGbZ":97}],17:[function(require,module,exports){
 'use strict';
 
 module.exports = function bind(fn, thisArg) {
@@ -966,7 +1075,7 @@ module.exports = function buildURL(url, params, paramsSerializer) {
   return url;
 };
 
-},{"./../utils":26}],19:[function(require,module,exports){
+},{"./../utils":28}],19:[function(require,module,exports){
 'use strict';
 
 /**
@@ -1037,7 +1146,7 @@ module.exports = (
     })()
 );
 
-},{"./../utils":26}],21:[function(require,module,exports){
+},{"./../utils":28}],21:[function(require,module,exports){
 'use strict';
 
 /**
@@ -1054,6 +1163,19 @@ module.exports = function isAbsoluteURL(url) {
 };
 
 },{}],22:[function(require,module,exports){
+'use strict';
+
+/**
+ * Determines whether the payload is an error thrown by Axios
+ *
+ * @param {*} payload The value to test
+ * @returns {boolean} True if the payload is an error thrown by Axios, otherwise false
+ */
+module.exports = function isAxiosError(payload) {
+  return (typeof payload === 'object') && (payload.isAxiosError === true);
+};
+
+},{}],23:[function(require,module,exports){
 'use strict';
 
 var utils = require('./../utils');
@@ -1123,7 +1245,7 @@ module.exports = (
     })()
 );
 
-},{"./../utils":26}],23:[function(require,module,exports){
+},{"./../utils":28}],24:[function(require,module,exports){
 'use strict';
 
 var utils = require('../utils');
@@ -1137,7 +1259,7 @@ module.exports = function normalizeHeaderName(headers, normalizedName) {
   });
 };
 
-},{"../utils":26}],24:[function(require,module,exports){
+},{"../utils":28}],25:[function(require,module,exports){
 'use strict';
 
 var utils = require('./../utils');
@@ -1192,7 +1314,7 @@ module.exports = function parseHeaders(headers) {
   return parsed;
 };
 
-},{"./../utils":26}],25:[function(require,module,exports){
+},{"./../utils":28}],26:[function(require,module,exports){
 'use strict';
 
 /**
@@ -1221,12 +1343,117 @@ module.exports = function spread(callback) {
   };
 };
 
-},{}],26:[function(require,module,exports){
+},{}],27:[function(require,module,exports){
+'use strict';
+
+var pkg = require('./../../package.json');
+
+var validators = {};
+
+// eslint-disable-next-line func-names
+['object', 'boolean', 'number', 'function', 'string', 'symbol'].forEach(function(type, i) {
+  validators[type] = function validator(thing) {
+    return typeof thing === type || 'a' + (i < 1 ? 'n ' : ' ') + type;
+  };
+});
+
+var deprecatedWarnings = {};
+var currentVerArr = pkg.version.split('.');
+
+/**
+ * Compare package versions
+ * @param {string} version
+ * @param {string?} thanVersion
+ * @returns {boolean}
+ */
+function isOlderVersion(version, thanVersion) {
+  var pkgVersionArr = thanVersion ? thanVersion.split('.') : currentVerArr;
+  var destVer = version.split('.');
+  for (var i = 0; i < 3; i++) {
+    if (pkgVersionArr[i] > destVer[i]) {
+      return true;
+    } else if (pkgVersionArr[i] < destVer[i]) {
+      return false;
+    }
+  }
+  return false;
+}
+
+/**
+ * Transitional option validator
+ * @param {function|boolean?} validator
+ * @param {string?} version
+ * @param {string} message
+ * @returns {function}
+ */
+validators.transitional = function transitional(validator, version, message) {
+  var isDeprecated = version && isOlderVersion(version);
+
+  function formatMessage(opt, desc) {
+    return '[Axios v' + pkg.version + '] Transitional option \'' + opt + '\'' + desc + (message ? '. ' + message : '');
+  }
+
+  // eslint-disable-next-line func-names
+  return function(value, opt, opts) {
+    if (validator === false) {
+      throw new Error(formatMessage(opt, ' has been removed in ' + version));
+    }
+
+    if (isDeprecated && !deprecatedWarnings[opt]) {
+      deprecatedWarnings[opt] = true;
+      // eslint-disable-next-line no-console
+      console.warn(
+        formatMessage(
+          opt,
+          ' has been deprecated since v' + version + ' and will be removed in the near future'
+        )
+      );
+    }
+
+    return validator ? validator(value, opt, opts) : true;
+  };
+};
+
+/**
+ * Assert object's properties type
+ * @param {object} options
+ * @param {object} schema
+ * @param {boolean?} allowUnknown
+ */
+
+function assertOptions(options, schema, allowUnknown) {
+  if (typeof options !== 'object') {
+    throw new TypeError('options must be an object');
+  }
+  var keys = Object.keys(options);
+  var i = keys.length;
+  while (i-- > 0) {
+    var opt = keys[i];
+    var validator = schema[opt];
+    if (validator) {
+      var value = options[opt];
+      var result = value === undefined || validator(value, opt, options);
+      if (result !== true) {
+        throw new TypeError('option ' + opt + ' must be ' + result);
+      }
+      continue;
+    }
+    if (allowUnknown !== true) {
+      throw Error('Unknown option ' + opt);
+    }
+  }
+}
+
+module.exports = {
+  isOlderVersion: isOlderVersion,
+  assertOptions: assertOptions,
+  validators: validators
+};
+
+},{"./../../package.json":29}],28:[function(require,module,exports){
 'use strict';
 
 var bind = require('./helpers/bind');
-
-/*global toString:true*/
 
 // utils is a library of generic helper functions non-specific to axios
 
@@ -1411,7 +1638,7 @@ function isURLSearchParams(val) {
  * @returns {String} The String freed of excess whitespace
  */
 function trim(str) {
-  return str.replace(/^\s*/, '').replace(/\s*$/, '');
+  return str.trim ? str.trim() : str.replace(/^\s+|\s+$/g, '');
 }
 
 /**
@@ -1574,7 +1801,93 @@ module.exports = {
   stripBOM: stripBOM
 };
 
-},{"./helpers/bind":17}],27:[function(require,module,exports){
+},{"./helpers/bind":17}],29:[function(require,module,exports){
+module.exports={
+  "name": "axios",
+  "version": "0.21.4",
+  "description": "Promise based HTTP client for the browser and node.js",
+  "main": "index.js",
+  "scripts": {
+    "test": "grunt test",
+    "start": "node ./sandbox/server.js",
+    "build": "NODE_ENV=production grunt build",
+    "preversion": "npm test",
+    "version": "npm run build && grunt version && git add -A dist && git add CHANGELOG.md bower.json package.json",
+    "postversion": "git push && git push --tags",
+    "examples": "node ./examples/server.js",
+    "coveralls": "cat coverage/lcov.info | ./node_modules/coveralls/bin/coveralls.js",
+    "fix": "eslint --fix lib/**/*.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/axios/axios.git"
+  },
+  "keywords": [
+    "xhr",
+    "http",
+    "ajax",
+    "promise",
+    "node"
+  ],
+  "author": "Matt Zabriskie",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/axios/axios/issues"
+  },
+  "homepage": "https://axios-http.com",
+  "devDependencies": {
+    "coveralls": "^3.0.0",
+    "es6-promise": "^4.2.4",
+    "grunt": "^1.3.0",
+    "grunt-banner": "^0.6.0",
+    "grunt-cli": "^1.2.0",
+    "grunt-contrib-clean": "^1.1.0",
+    "grunt-contrib-watch": "^1.0.0",
+    "grunt-eslint": "^23.0.0",
+    "grunt-karma": "^4.0.0",
+    "grunt-mocha-test": "^0.13.3",
+    "grunt-ts": "^6.0.0-beta.19",
+    "grunt-webpack": "^4.0.2",
+    "istanbul-instrumenter-loader": "^1.0.0",
+    "jasmine-core": "^2.4.1",
+    "karma": "^6.3.2",
+    "karma-chrome-launcher": "^3.1.0",
+    "karma-firefox-launcher": "^2.1.0",
+    "karma-jasmine": "^1.1.1",
+    "karma-jasmine-ajax": "^0.1.13",
+    "karma-safari-launcher": "^1.0.0",
+    "karma-sauce-launcher": "^4.3.6",
+    "karma-sinon": "^1.0.5",
+    "karma-sourcemap-loader": "^0.3.8",
+    "karma-webpack": "^4.0.2",
+    "load-grunt-tasks": "^3.5.2",
+    "minimist": "^1.2.0",
+    "mocha": "^8.2.1",
+    "sinon": "^4.5.0",
+    "terser-webpack-plugin": "^4.2.3",
+    "typescript": "^4.0.5",
+    "url-search-params": "^0.10.0",
+    "webpack": "^4.44.2",
+    "webpack-dev-server": "^3.11.0"
+  },
+  "browser": {
+    "./lib/adapters/http.js": "./lib/adapters/xhr.js"
+  },
+  "jsdelivr": "dist/axios.min.js",
+  "unpkg": "dist/axios.min.js",
+  "typings": "./index.d.ts",
+  "dependencies": {
+    "follow-redirects": "^1.14.0"
+  },
+  "bundlesize": [
+    {
+      "path": "./dist/axios.min.js",
+      "threshold": "5kB"
+    }
+  ]
+}
+
+},{}],30:[function(require,module,exports){
 /*!
  * Chart.js v2.9.4
  * https://www.chartjs.org
@@ -17748,7 +18061,7 @@ return src;
 
 })));
 
-},{"moment":47}],28:[function(require,module,exports){
+},{"moment":50}],31:[function(require,module,exports){
 var EventEmitter = require('events').EventEmitter
 
 var storage = require('./lib/storage')
@@ -17800,7 +18113,7 @@ function expose (opts) {
   }
 }
 
-},{"./lib/copy":29,"./lib/debug":30,"./lib/help":31,"./lib/log":32,"./lib/logger":33,"./lib/perf":34,"./lib/storage":35,"events":90,"wayfarer/get-all-routes":74}],29:[function(require,module,exports){
+},{"./lib/copy":32,"./lib/debug":33,"./lib/help":34,"./lib/log":35,"./lib/logger":36,"./lib/perf":37,"./lib/storage":38,"events":95,"wayfarer/get-all-routes":77}],32:[function(require,module,exports){
 var stateCopy = require('state-copy')
 var pluck = require('plucker')
 
@@ -17816,7 +18129,7 @@ function copy (state) {
   stateCopy(isStateString ? pluck.apply(this, arguments) : state)
 }
 
-},{"plucker":69,"state-copy":73}],30:[function(require,module,exports){
+},{"plucker":72,"state-copy":76}],33:[function(require,module,exports){
 /* eslint-disable node/no-deprecated-api */
 var onChange = require('object-change-callsite')
 var nanologger = require('nanologger')
@@ -17858,7 +18171,7 @@ function debug (state, emitter, app, localEmitter) {
   })
 }
 
-},{"assert":84,"nanologger":57,"object-change-callsite":67}],31:[function(require,module,exports){
+},{"assert":89,"nanologger":60,"object-change-callsite":70}],34:[function(require,module,exports){
 module.exports = help
 
 function help () {
@@ -17891,7 +18204,7 @@ function print (cmd, desc) {
 
 function noop () {}
 
-},{}],32:[function(require,module,exports){
+},{}],35:[function(require,module,exports){
 var removeItems = require('remove-array-items')
 var scheduler = require('nanoscheduler')()
 var nanologger = require('nanologger')
@@ -17969,7 +18282,7 @@ function log (state, emitter, app, localEmitter) {
 
 function noop () {}
 
-},{"clone":36,"nanologger":57,"nanoscheduler":65,"remove-array-items":37}],33:[function(require,module,exports){
+},{"clone":39,"nanologger":60,"nanoscheduler":68,"remove-array-items":40}],36:[function(require,module,exports){
 var scheduler = require('nanoscheduler')()
 var nanologger = require('nanologger')
 var Hooks = require('choo-hooks')
@@ -18054,7 +18367,7 @@ function logger (state, emitter, opts) {
   }
 }
 
-},{"choo-hooks":38,"nanologger":57,"nanoscheduler":65}],34:[function(require,module,exports){
+},{"choo-hooks":41,"nanologger":60,"nanoscheduler":68}],37:[function(require,module,exports){
 var onPerformance = require('on-performance')
 
 var BAR = '█'
@@ -18195,7 +18508,7 @@ function getMedian (args) {
 // Do nothing.
 function noop () {}
 
-},{"on-performance":68}],35:[function(require,module,exports){
+},{"on-performance":71}],38:[function(require,module,exports){
 var pretty = require('prettier-bytes')
 
 module.exports = storage
@@ -18238,7 +18551,7 @@ function fmt (num) {
 
 function noop () {}
 
-},{"prettier-bytes":70}],36:[function(require,module,exports){
+},{"prettier-bytes":73}],39:[function(require,module,exports){
 (function (Buffer){
 var clone = (function() {
 'use strict';
@@ -18499,7 +18812,7 @@ if (typeof module === 'object' && module.exports) {
 }
 
 }).call(this,require("buffer").Buffer)
-},{"buffer":87}],37:[function(require,module,exports){
+},{"buffer":92}],40:[function(require,module,exports){
 'use strict';
 
 /**
@@ -18530,7 +18843,7 @@ function removeItems (arr, startIdx, removeCount) {
 
 module.exports = removeItems;
 
-},{}],38:[function(require,module,exports){
+},{}],41:[function(require,module,exports){
 var onPerformance = require('on-performance')
 var scheduler = require('nanoscheduler')()
 var assert = require('assert')
@@ -18659,7 +18972,7 @@ ChooHooks.prototype._emitLoaded = function () {
   })
 }
 
-},{"assert":84,"nanoscheduler":65,"on-performance":68}],39:[function(require,module,exports){
+},{"assert":89,"nanoscheduler":68,"on-performance":71}],42:[function(require,module,exports){
 var assert = require('assert')
 var LRU = require('nanolru')
 
@@ -18702,10 +19015,10 @@ function newCall (Cls) {
   return new (Cls.bind.apply(Cls, arguments)) // eslint-disable-line
 }
 
-},{"assert":48,"nanolru":58}],40:[function(require,module,exports){
+},{"assert":51,"nanolru":61}],43:[function(require,module,exports){
 module.exports = require('nanohtml')
 
-},{"nanohtml":53}],41:[function(require,module,exports){
+},{"nanohtml":56}],44:[function(require,module,exports){
 var scrollToAnchor = require('scroll-to-anchor')
 var documentReady = require('document-ready')
 var nanotiming = require('nanotiming')
@@ -18989,7 +19302,7 @@ Choo.prototype._setCache = function (state) {
   }
 }
 
-},{"./component/cache":39,"assert":48,"document-ready":43,"nanobus":49,"nanohref":50,"nanomorph":59,"nanoquery":62,"nanoraf":63,"nanorouter":64,"nanotiming":66,"scroll-to-anchor":72}],42:[function(require,module,exports){
+},{"./component/cache":42,"assert":51,"document-ready":46,"nanobus":52,"nanohref":53,"nanomorph":62,"nanoquery":65,"nanoraf":66,"nanorouter":67,"nanotiming":69,"scroll-to-anchor":75}],45:[function(require,module,exports){
 /*! clipboard-copy. MIT License. Feross Aboukhadijeh <https://feross.org/opensource> */
 /* global DOMException */
 
@@ -19042,7 +19355,7 @@ function clipboardCopy (text) {
     : Promise.reject(new DOMException('The request is not allowed', 'NotAllowedError'))
 }
 
-},{}],43:[function(require,module,exports){
+},{}],46:[function(require,module,exports){
 'use strict'
 
 module.exports = ready
@@ -19061,7 +19374,7 @@ function ready (callback) {
   })
 }
 
-},{}],44:[function(require,module,exports){
+},{}],47:[function(require,module,exports){
 module.exports = stringify
 stringify.default = stringify
 stringify.stable = deterministicStringify
@@ -19292,7 +19605,7 @@ function replaceGetterValues (replacer) {
   }
 }
 
-},{}],45:[function(require,module,exports){
+},{}],48:[function(require,module,exports){
 module.exports = attributeToProperty
 
 var transform = {
@@ -19313,7 +19626,7 @@ function attributeToProperty (h) {
   }
 }
 
-},{}],46:[function(require,module,exports){
+},{}],49:[function(require,module,exports){
 var attrToProp = require('hyperscript-attribute-to-property')
 
 var VAR = 0, TEXT = 1, OPEN = 2, CLOSE = 3, ATTR = 4
@@ -19610,9 +19923,9 @@ var closeRE = RegExp('^(' + [
 ].join('|') + ')(?:[\.#][a-zA-Z0-9\u007F-\uFFFF_:-]+)*$')
 function selfClosing (tag) { return closeRE.test(tag) }
 
-},{"hyperscript-attribute-to-property":45}],47:[function(require,module,exports){
+},{"hyperscript-attribute-to-property":48}],50:[function(require,module,exports){
 //! moment.js
-//! version : 2.29.1
+//! version : 2.30.1
 //! authors : Tim Wood, Iskren Chernev, Moment.js contributors
 //! license : MIT
 //! momentjs.com
@@ -19689,8 +20002,9 @@ function selfClosing (tag) { return closeRE.test(tag) }
 
     function map(arr, fn) {
         var res = [],
-            i;
-        for (i = 0; i < arr.length; ++i) {
+            i,
+            arrLen = arr.length;
+        for (i = 0; i < arrLen; ++i) {
             res.push(fn(arr[i], i));
         }
         return res;
@@ -19767,24 +20081,25 @@ function selfClosing (tag) { return closeRE.test(tag) }
     }
 
     function isValid(m) {
-        if (m._isValid == null) {
-            var flags = getParsingFlags(m),
-                parsedParts = some.call(flags.parsedDateParts, function (i) {
-                    return i != null;
-                }),
-                isNowValid =
-                    !isNaN(m._d.getTime()) &&
-                    flags.overflow < 0 &&
-                    !flags.empty &&
-                    !flags.invalidEra &&
-                    !flags.invalidMonth &&
-                    !flags.invalidWeekday &&
-                    !flags.weekdayMismatch &&
-                    !flags.nullInput &&
-                    !flags.invalidFormat &&
-                    !flags.userInvalidated &&
-                    (!flags.meridiem || (flags.meridiem && parsedParts));
-
+        var flags = null,
+            parsedParts = false,
+            isNowValid = m._d && !isNaN(m._d.getTime());
+        if (isNowValid) {
+            flags = getParsingFlags(m);
+            parsedParts = some.call(flags.parsedDateParts, function (i) {
+                return i != null;
+            });
+            isNowValid =
+                flags.overflow < 0 &&
+                !flags.empty &&
+                !flags.invalidEra &&
+                !flags.invalidMonth &&
+                !flags.invalidWeekday &&
+                !flags.weekdayMismatch &&
+                !flags.nullInput &&
+                !flags.invalidFormat &&
+                !flags.userInvalidated &&
+                (!flags.meridiem || (flags.meridiem && parsedParts));
             if (m._strict) {
                 isNowValid =
                     isNowValid &&
@@ -19792,12 +20107,11 @@ function selfClosing (tag) { return closeRE.test(tag) }
                     flags.unusedTokens.length === 0 &&
                     flags.bigHour === undefined;
             }
-
-            if (Object.isFrozen == null || !Object.isFrozen(m)) {
-                m._isValid = isNowValid;
-            } else {
-                return isNowValid;
-            }
+        }
+        if (Object.isFrozen == null || !Object.isFrozen(m)) {
+            m._isValid = isNowValid;
+        } else {
+            return isNowValid;
         }
         return m._isValid;
     }
@@ -19819,7 +20133,10 @@ function selfClosing (tag) { return closeRE.test(tag) }
         updateInProgress = false;
 
     function copyConfig(to, from) {
-        var i, prop, val;
+        var i,
+            prop,
+            val,
+            momentPropertiesLen = momentProperties.length;
 
         if (!isUndefined(from._isAMomentObject)) {
             to._isAMomentObject = from._isAMomentObject;
@@ -19852,8 +20169,8 @@ function selfClosing (tag) { return closeRE.test(tag) }
             to._locale = from._locale;
         }
 
-        if (momentProperties.length > 0) {
-            for (i = 0; i < momentProperties.length; i++) {
+        if (momentPropertiesLen > 0) {
+            for (i = 0; i < momentPropertiesLen; i++) {
                 prop = momentProperties[i];
                 val = from[prop];
                 if (!isUndefined(val)) {
@@ -19908,8 +20225,9 @@ function selfClosing (tag) { return closeRE.test(tag) }
                 var args = [],
                     arg,
                     i,
-                    key;
-                for (i = 0; i < arguments.length; i++) {
+                    key,
+                    argLen = arguments.length;
+                for (i = 0; i < argLen; i++) {
                     arg = '';
                     if (typeof arguments[i] === 'object') {
                         arg += '\n[' + i + '] ';
@@ -20059,7 +20377,8 @@ function selfClosing (tag) { return closeRE.test(tag) }
         );
     }
 
-    var formattingTokens = /(\[[^\[]*\])|(\\)?([Hh]mm(ss)?|Mo|MM?M?M?|Do|DDDo|DD?D?D?|ddd?d?|do?|w[o|w]?|W[o|W]?|Qo?|N{1,5}|YYYYYY|YYYYY|YYYY|YY|y{2,4}|yo?|gg(ggg?)?|GG(GGG?)?|e|E|a|A|hh?|HH?|kk?|mm?|ss?|S{1,9}|x|X|zz?|ZZ?|.)/g,
+    var formattingTokens =
+            /(\[[^\[]*\])|(\\)?([Hh]mm(ss)?|Mo|MM?M?M?|Do|DDDo|DD?D?D?|ddd?d?|do?|w[o|w]?|W[o|W]?|Qo?|N{1,5}|YYYYYY|YYYYY|YYYY|YY|y{2,4}|yo?|gg(ggg?)?|GG(GGG?)?|e|E|a|A|hh?|HH?|kk?|mm?|ss?|S{1,9}|x|X|zz?|ZZ?|.)/g,
         localFormattingTokens = /(\[[^\[]*\])|(\\)?(LTS|LT|LL?L?L?|l{1,4})/g,
         formatFunctions = {},
         formatTokenFunctions = {};
@@ -20237,12 +20556,56 @@ function selfClosing (tag) { return closeRE.test(tag) }
         return isFunction(format) ? format(output) : format.replace(/%s/i, output);
     }
 
-    var aliases = {};
-
-    function addUnitAlias(unit, shorthand) {
-        var lowerCase = unit.toLowerCase();
-        aliases[lowerCase] = aliases[lowerCase + 's'] = aliases[shorthand] = unit;
-    }
+    var aliases = {
+        D: 'date',
+        dates: 'date',
+        date: 'date',
+        d: 'day',
+        days: 'day',
+        day: 'day',
+        e: 'weekday',
+        weekdays: 'weekday',
+        weekday: 'weekday',
+        E: 'isoWeekday',
+        isoweekdays: 'isoWeekday',
+        isoweekday: 'isoWeekday',
+        DDD: 'dayOfYear',
+        dayofyears: 'dayOfYear',
+        dayofyear: 'dayOfYear',
+        h: 'hour',
+        hours: 'hour',
+        hour: 'hour',
+        ms: 'millisecond',
+        milliseconds: 'millisecond',
+        millisecond: 'millisecond',
+        m: 'minute',
+        minutes: 'minute',
+        minute: 'minute',
+        M: 'month',
+        months: 'month',
+        month: 'month',
+        Q: 'quarter',
+        quarters: 'quarter',
+        quarter: 'quarter',
+        s: 'second',
+        seconds: 'second',
+        second: 'second',
+        gg: 'weekYear',
+        weekyears: 'weekYear',
+        weekyear: 'weekYear',
+        GG: 'isoWeekYear',
+        isoweekyears: 'isoWeekYear',
+        isoweekyear: 'isoWeekYear',
+        w: 'week',
+        weeks: 'week',
+        week: 'week',
+        W: 'isoWeek',
+        isoweeks: 'isoWeek',
+        isoweek: 'isoWeek',
+        y: 'year',
+        years: 'year',
+        year: 'year',
+    };
 
     function normalizeUnits(units) {
         return typeof units === 'string'
@@ -20267,11 +20630,24 @@ function selfClosing (tag) { return closeRE.test(tag) }
         return normalizedInput;
     }
 
-    var priorities = {};
-
-    function addUnitPriority(unit, priority) {
-        priorities[unit] = priority;
-    }
+    var priorities = {
+        date: 9,
+        day: 11,
+        weekday: 11,
+        isoWeekday: 11,
+        dayOfYear: 4,
+        hour: 13,
+        millisecond: 16,
+        minute: 14,
+        month: 8,
+        quarter: 7,
+        second: 15,
+        weekYear: 1,
+        isoWeekYear: 1,
+        week: 5,
+        isoWeek: 5,
+        year: 1,
+    };
 
     function getPrioritizedUnits(unitsObj) {
         var units = [],
@@ -20285,95 +20661,6 @@ function selfClosing (tag) { return closeRE.test(tag) }
             return a.priority - b.priority;
         });
         return units;
-    }
-
-    function isLeapYear(year) {
-        return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
-    }
-
-    function absFloor(number) {
-        if (number < 0) {
-            // -0 -> 0
-            return Math.ceil(number) || 0;
-        } else {
-            return Math.floor(number);
-        }
-    }
-
-    function toInt(argumentForCoercion) {
-        var coercedNumber = +argumentForCoercion,
-            value = 0;
-
-        if (coercedNumber !== 0 && isFinite(coercedNumber)) {
-            value = absFloor(coercedNumber);
-        }
-
-        return value;
-    }
-
-    function makeGetSet(unit, keepTime) {
-        return function (value) {
-            if (value != null) {
-                set$1(this, unit, value);
-                hooks.updateOffset(this, keepTime);
-                return this;
-            } else {
-                return get(this, unit);
-            }
-        };
-    }
-
-    function get(mom, unit) {
-        return mom.isValid()
-            ? mom._d['get' + (mom._isUTC ? 'UTC' : '') + unit]()
-            : NaN;
-    }
-
-    function set$1(mom, unit, value) {
-        if (mom.isValid() && !isNaN(value)) {
-            if (
-                unit === 'FullYear' &&
-                isLeapYear(mom.year()) &&
-                mom.month() === 1 &&
-                mom.date() === 29
-            ) {
-                value = toInt(value);
-                mom._d['set' + (mom._isUTC ? 'UTC' : '') + unit](
-                    value,
-                    mom.month(),
-                    daysInMonth(value, mom.month())
-                );
-            } else {
-                mom._d['set' + (mom._isUTC ? 'UTC' : '') + unit](value);
-            }
-        }
-    }
-
-    // MOMENTS
-
-    function stringGet(units) {
-        units = normalizeUnits(units);
-        if (isFunction(this[units])) {
-            return this[units]();
-        }
-        return this;
-    }
-
-    function stringSet(units, value) {
-        if (typeof units === 'object') {
-            units = normalizeObjectUnits(units);
-            var prioritized = getPrioritizedUnits(units),
-                i;
-            for (i = 0; i < prioritized.length; i++) {
-                this[prioritized[i].unit](units[prioritized[i].unit]);
-            }
-        } else {
-            units = normalizeUnits(units);
-            if (isFunction(this[units])) {
-                return this[units](value);
-            }
-        }
-        return this;
     }
 
     var match1 = /\d/, //       0 - 9
@@ -20394,7 +20681,10 @@ function selfClosing (tag) { return closeRE.test(tag) }
         matchTimestamp = /[+-]?\d+(\.\d{1,3})?/, // 123456789 123456789.123
         // any word (or two) characters or numbers including two/three word month in arabic.
         // includes scottish gaelic two word and hyphenated months
-        matchWord = /[0-9]{0,256}['a-z\u00A0-\u05FF\u0700-\uD7FF\uF900-\uFDCF\uFDF0-\uFF07\uFF10-\uFFEF]{1,256}|[\u0600-\u06FF\/]{1,256}(\s*?[\u0600-\u06FF]{1,256}){1,2}/i,
+        matchWord =
+            /[0-9]{0,256}['a-z\u00A0-\u05FF\u0700-\uD7FF\uF900-\uFDCF\uFDF0-\uFF07\uFF10-\uFFEF]{1,256}|[\u0600-\u06FF\/]{1,256}(\s*?[\u0600-\u06FF]{1,256}){1,2}/i,
+        match1to2NoLeadingZero = /^[1-9]\d?/, //         1-99
+        match1to2HasZero = /^([1-9]\d|\d)/, //           0-99
         regexes;
 
     regexes = {};
@@ -20420,15 +20710,12 @@ function selfClosing (tag) { return closeRE.test(tag) }
         return regexEscape(
             s
                 .replace('\\', '')
-                .replace(/\\(\[)|\\(\])|\[([^\]\[]*)\]|\\(.)/g, function (
-                    matched,
-                    p1,
-                    p2,
-                    p3,
-                    p4
-                ) {
-                    return p1 || p2 || p3 || p4;
-                })
+                .replace(
+                    /\\(\[)|\\(\])|\[([^\]\[]*)\]|\\(.)/g,
+                    function (matched, p1, p2, p3, p4) {
+                        return p1 || p2 || p3 || p4;
+                    }
+                )
         );
     }
 
@@ -20436,11 +20723,32 @@ function selfClosing (tag) { return closeRE.test(tag) }
         return s.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
     }
 
+    function absFloor(number) {
+        if (number < 0) {
+            // -0 -> 0
+            return Math.ceil(number) || 0;
+        } else {
+            return Math.floor(number);
+        }
+    }
+
+    function toInt(argumentForCoercion) {
+        var coercedNumber = +argumentForCoercion,
+            value = 0;
+
+        if (coercedNumber !== 0 && isFinite(coercedNumber)) {
+            value = absFloor(coercedNumber);
+        }
+
+        return value;
+    }
+
     var tokens = {};
 
     function addParseToken(token, callback) {
         var i,
-            func = callback;
+            func = callback,
+            tokenLen;
         if (typeof token === 'string') {
             token = [token];
         }
@@ -20449,7 +20757,8 @@ function selfClosing (tag) { return closeRE.test(tag) }
                 array[callback] = toInt(input);
             };
         }
-        for (i = 0; i < token.length; i++) {
+        tokenLen = token.length;
+        for (i = 0; i < tokenLen; i++) {
             tokens[token[i]] = func;
         }
     }
@@ -20467,6 +20776,10 @@ function selfClosing (tag) { return closeRE.test(tag) }
         }
     }
 
+    function isLeapYear(year) {
+        return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+    }
+
     var YEAR = 0,
         MONTH = 1,
         DATE = 2,
@@ -20476,6 +20789,173 @@ function selfClosing (tag) { return closeRE.test(tag) }
         MILLISECOND = 6,
         WEEK = 7,
         WEEKDAY = 8;
+
+    // FORMATTING
+
+    addFormatToken('Y', 0, 0, function () {
+        var y = this.year();
+        return y <= 9999 ? zeroFill(y, 4) : '+' + y;
+    });
+
+    addFormatToken(0, ['YY', 2], 0, function () {
+        return this.year() % 100;
+    });
+
+    addFormatToken(0, ['YYYY', 4], 0, 'year');
+    addFormatToken(0, ['YYYYY', 5], 0, 'year');
+    addFormatToken(0, ['YYYYYY', 6, true], 0, 'year');
+
+    // PARSING
+
+    addRegexToken('Y', matchSigned);
+    addRegexToken('YY', match1to2, match2);
+    addRegexToken('YYYY', match1to4, match4);
+    addRegexToken('YYYYY', match1to6, match6);
+    addRegexToken('YYYYYY', match1to6, match6);
+
+    addParseToken(['YYYYY', 'YYYYYY'], YEAR);
+    addParseToken('YYYY', function (input, array) {
+        array[YEAR] =
+            input.length === 2 ? hooks.parseTwoDigitYear(input) : toInt(input);
+    });
+    addParseToken('YY', function (input, array) {
+        array[YEAR] = hooks.parseTwoDigitYear(input);
+    });
+    addParseToken('Y', function (input, array) {
+        array[YEAR] = parseInt(input, 10);
+    });
+
+    // HELPERS
+
+    function daysInYear(year) {
+        return isLeapYear(year) ? 366 : 365;
+    }
+
+    // HOOKS
+
+    hooks.parseTwoDigitYear = function (input) {
+        return toInt(input) + (toInt(input) > 68 ? 1900 : 2000);
+    };
+
+    // MOMENTS
+
+    var getSetYear = makeGetSet('FullYear', true);
+
+    function getIsLeapYear() {
+        return isLeapYear(this.year());
+    }
+
+    function makeGetSet(unit, keepTime) {
+        return function (value) {
+            if (value != null) {
+                set$1(this, unit, value);
+                hooks.updateOffset(this, keepTime);
+                return this;
+            } else {
+                return get(this, unit);
+            }
+        };
+    }
+
+    function get(mom, unit) {
+        if (!mom.isValid()) {
+            return NaN;
+        }
+
+        var d = mom._d,
+            isUTC = mom._isUTC;
+
+        switch (unit) {
+            case 'Milliseconds':
+                return isUTC ? d.getUTCMilliseconds() : d.getMilliseconds();
+            case 'Seconds':
+                return isUTC ? d.getUTCSeconds() : d.getSeconds();
+            case 'Minutes':
+                return isUTC ? d.getUTCMinutes() : d.getMinutes();
+            case 'Hours':
+                return isUTC ? d.getUTCHours() : d.getHours();
+            case 'Date':
+                return isUTC ? d.getUTCDate() : d.getDate();
+            case 'Day':
+                return isUTC ? d.getUTCDay() : d.getDay();
+            case 'Month':
+                return isUTC ? d.getUTCMonth() : d.getMonth();
+            case 'FullYear':
+                return isUTC ? d.getUTCFullYear() : d.getFullYear();
+            default:
+                return NaN; // Just in case
+        }
+    }
+
+    function set$1(mom, unit, value) {
+        var d, isUTC, year, month, date;
+
+        if (!mom.isValid() || isNaN(value)) {
+            return;
+        }
+
+        d = mom._d;
+        isUTC = mom._isUTC;
+
+        switch (unit) {
+            case 'Milliseconds':
+                return void (isUTC
+                    ? d.setUTCMilliseconds(value)
+                    : d.setMilliseconds(value));
+            case 'Seconds':
+                return void (isUTC ? d.setUTCSeconds(value) : d.setSeconds(value));
+            case 'Minutes':
+                return void (isUTC ? d.setUTCMinutes(value) : d.setMinutes(value));
+            case 'Hours':
+                return void (isUTC ? d.setUTCHours(value) : d.setHours(value));
+            case 'Date':
+                return void (isUTC ? d.setUTCDate(value) : d.setDate(value));
+            // case 'Day': // Not real
+            //    return void (isUTC ? d.setUTCDay(value) : d.setDay(value));
+            // case 'Month': // Not used because we need to pass two variables
+            //     return void (isUTC ? d.setUTCMonth(value) : d.setMonth(value));
+            case 'FullYear':
+                break; // See below ...
+            default:
+                return; // Just in case
+        }
+
+        year = value;
+        month = mom.month();
+        date = mom.date();
+        date = date === 29 && month === 1 && !isLeapYear(year) ? 28 : date;
+        void (isUTC
+            ? d.setUTCFullYear(year, month, date)
+            : d.setFullYear(year, month, date));
+    }
+
+    // MOMENTS
+
+    function stringGet(units) {
+        units = normalizeUnits(units);
+        if (isFunction(this[units])) {
+            return this[units]();
+        }
+        return this;
+    }
+
+    function stringSet(units, value) {
+        if (typeof units === 'object') {
+            units = normalizeObjectUnits(units);
+            var prioritized = getPrioritizedUnits(units),
+                i,
+                prioritizedLen = prioritized.length;
+            for (i = 0; i < prioritizedLen; i++) {
+                this[prioritized[i].unit](units[prioritized[i].unit]);
+            }
+        } else {
+            units = normalizeUnits(units);
+            if (isFunction(this[units])) {
+                return this[units](value);
+            }
+        }
+        return this;
+    }
 
     function mod(n, x) {
         return ((n % x) + x) % x;
@@ -20525,17 +21005,9 @@ function selfClosing (tag) { return closeRE.test(tag) }
         return this.localeData().months(this, format);
     });
 
-    // ALIASES
-
-    addUnitAlias('month', 'M');
-
-    // PRIORITY
-
-    addUnitPriority('month', 8);
-
     // PARSING
 
-    addRegexToken('M', match1to2);
+    addRegexToken('M', match1to2, match1to2NoLeadingZero);
     addRegexToken('MM', match1to2, match2);
     addRegexToken('MMM', function (isStrict, locale) {
         return locale.monthsShortRegex(isStrict);
@@ -20560,12 +21032,12 @@ function selfClosing (tag) { return closeRE.test(tag) }
 
     // LOCALES
 
-    var defaultLocaleMonths = 'January_February_March_April_May_June_July_August_September_October_November_December'.split(
-            '_'
-        ),
-        defaultLocaleMonthsShort = 'Jan_Feb_Mar_Apr_May_Jun_Jul_Aug_Sep_Oct_Nov_Dec'.split(
-            '_'
-        ),
+    var defaultLocaleMonths =
+            'January_February_March_April_May_June_July_August_September_October_November_December'.split(
+                '_'
+            ),
+        defaultLocaleMonthsShort =
+            'Jan_Feb_Mar_Apr_May_Jun_Jul_Aug_Sep_Oct_Nov_Dec'.split('_'),
         MONTHS_IN_FORMAT = /D[oD]?(\[[^\[\]]*\]|\s)+MMMM?/,
         defaultMonthsShortRegex = matchWord,
         defaultMonthsRegex = matchWord;
@@ -20701,8 +21173,6 @@ function selfClosing (tag) { return closeRE.test(tag) }
     // MOMENTS
 
     function setMonth(mom, value) {
-        var dayOfMonth;
-
         if (!mom.isValid()) {
             // No op
             return mom;
@@ -20720,8 +21190,13 @@ function selfClosing (tag) { return closeRE.test(tag) }
             }
         }
 
-        dayOfMonth = Math.min(mom.date(), daysInMonth(mom.year(), value));
-        mom._d['set' + (mom._isUTC ? 'UTC' : '') + 'Month'](value, dayOfMonth);
+        var month = value,
+            date = mom.date();
+
+        date = date < 29 ? date : Math.min(date, daysInMonth(mom.year(), month));
+        void (mom._isUTC
+            ? mom._d.setUTCMonth(month, date)
+            : mom._d.setMonth(month, date));
         return mom;
     }
 
@@ -20788,27 +21263,24 @@ function selfClosing (tag) { return closeRE.test(tag) }
             longPieces = [],
             mixedPieces = [],
             i,
-            mom;
+            mom,
+            shortP,
+            longP;
         for (i = 0; i < 12; i++) {
             // make the regex if we don't have it already
             mom = createUTC([2000, i]);
-            shortPieces.push(this.monthsShort(mom, ''));
-            longPieces.push(this.months(mom, ''));
-            mixedPieces.push(this.months(mom, ''));
-            mixedPieces.push(this.monthsShort(mom, ''));
+            shortP = regexEscape(this.monthsShort(mom, ''));
+            longP = regexEscape(this.months(mom, ''));
+            shortPieces.push(shortP);
+            longPieces.push(longP);
+            mixedPieces.push(longP);
+            mixedPieces.push(shortP);
         }
         // Sorting makes sure if one month (or abbr) is a prefix of another it
         // will match the longer piece.
         shortPieces.sort(cmpLenRev);
         longPieces.sort(cmpLenRev);
         mixedPieces.sort(cmpLenRev);
-        for (i = 0; i < 12; i++) {
-            shortPieces[i] = regexEscape(shortPieces[i]);
-            longPieces[i] = regexEscape(longPieces[i]);
-        }
-        for (i = 0; i < 24; i++) {
-            mixedPieces[i] = regexEscape(mixedPieces[i]);
-        }
 
         this._monthsRegex = new RegExp('^(' + mixedPieces.join('|') + ')', 'i');
         this._monthsShortRegex = this._monthsRegex;
@@ -20820,69 +21292,6 @@ function selfClosing (tag) { return closeRE.test(tag) }
             '^(' + shortPieces.join('|') + ')',
             'i'
         );
-    }
-
-    // FORMATTING
-
-    addFormatToken('Y', 0, 0, function () {
-        var y = this.year();
-        return y <= 9999 ? zeroFill(y, 4) : '+' + y;
-    });
-
-    addFormatToken(0, ['YY', 2], 0, function () {
-        return this.year() % 100;
-    });
-
-    addFormatToken(0, ['YYYY', 4], 0, 'year');
-    addFormatToken(0, ['YYYYY', 5], 0, 'year');
-    addFormatToken(0, ['YYYYYY', 6, true], 0, 'year');
-
-    // ALIASES
-
-    addUnitAlias('year', 'y');
-
-    // PRIORITIES
-
-    addUnitPriority('year', 1);
-
-    // PARSING
-
-    addRegexToken('Y', matchSigned);
-    addRegexToken('YY', match1to2, match2);
-    addRegexToken('YYYY', match1to4, match4);
-    addRegexToken('YYYYY', match1to6, match6);
-    addRegexToken('YYYYYY', match1to6, match6);
-
-    addParseToken(['YYYYY', 'YYYYYY'], YEAR);
-    addParseToken('YYYY', function (input, array) {
-        array[YEAR] =
-            input.length === 2 ? hooks.parseTwoDigitYear(input) : toInt(input);
-    });
-    addParseToken('YY', function (input, array) {
-        array[YEAR] = hooks.parseTwoDigitYear(input);
-    });
-    addParseToken('Y', function (input, array) {
-        array[YEAR] = parseInt(input, 10);
-    });
-
-    // HELPERS
-
-    function daysInYear(year) {
-        return isLeapYear(year) ? 366 : 365;
-    }
-
-    // HOOKS
-
-    hooks.parseTwoDigitYear = function (input) {
-        return toInt(input) + (toInt(input) > 68 ? 1900 : 2000);
-    };
-
-    // MOMENTS
-
-    var getSetYear = makeGetSet('FullYear', true);
-
-    function getIsLeapYear() {
-        return isLeapYear(this.year());
     }
 
     function createDate(y, m, d, h, M, s, ms) {
@@ -20990,31 +21399,19 @@ function selfClosing (tag) { return closeRE.test(tag) }
     addFormatToken('w', ['ww', 2], 'wo', 'week');
     addFormatToken('W', ['WW', 2], 'Wo', 'isoWeek');
 
-    // ALIASES
-
-    addUnitAlias('week', 'w');
-    addUnitAlias('isoWeek', 'W');
-
-    // PRIORITIES
-
-    addUnitPriority('week', 5);
-    addUnitPriority('isoWeek', 5);
-
     // PARSING
 
-    addRegexToken('w', match1to2);
+    addRegexToken('w', match1to2, match1to2NoLeadingZero);
     addRegexToken('ww', match1to2, match2);
-    addRegexToken('W', match1to2);
+    addRegexToken('W', match1to2, match1to2NoLeadingZero);
     addRegexToken('WW', match1to2, match2);
 
-    addWeekParseToken(['w', 'ww', 'W', 'WW'], function (
-        input,
-        week,
-        config,
-        token
-    ) {
-        week[token.substr(0, 1)] = toInt(input);
-    });
+    addWeekParseToken(
+        ['w', 'ww', 'W', 'WW'],
+        function (input, week, config, token) {
+            week[token.substr(0, 1)] = toInt(input);
+        }
+    );
 
     // HELPERS
 
@@ -21067,17 +21464,6 @@ function selfClosing (tag) { return closeRE.test(tag) }
 
     addFormatToken('e', 0, 0, 'weekday');
     addFormatToken('E', 0, 0, 'isoWeekday');
-
-    // ALIASES
-
-    addUnitAlias('day', 'd');
-    addUnitAlias('weekday', 'e');
-    addUnitAlias('isoWeekday', 'E');
-
-    // PRIORITY
-    addUnitPriority('day', 11);
-    addUnitPriority('weekday', 11);
-    addUnitPriority('isoWeekday', 11);
 
     // PARSING
 
@@ -21139,9 +21525,8 @@ function selfClosing (tag) { return closeRE.test(tag) }
         return ws.slice(n, 7).concat(ws.slice(0, n));
     }
 
-    var defaultLocaleWeekdays = 'Sunday_Monday_Tuesday_Wednesday_Thursday_Friday_Saturday'.split(
-            '_'
-        ),
+    var defaultLocaleWeekdays =
+            'Sunday_Monday_Tuesday_Wednesday_Thursday_Friday_Saturday'.split('_'),
         defaultLocaleWeekdaysShort = 'Sun_Mon_Tue_Wed_Thu_Fri_Sat'.split('_'),
         defaultLocaleWeekdaysMin = 'Su_Mo_Tu_We_Th_Fr_Sa'.split('_'),
         defaultWeekdaysRegex = matchWord,
@@ -21159,24 +21544,24 @@ function selfClosing (tag) { return closeRE.test(tag) }
         return m === true
             ? shiftWeekdays(weekdays, this._week.dow)
             : m
-            ? weekdays[m.day()]
-            : weekdays;
+              ? weekdays[m.day()]
+              : weekdays;
     }
 
     function localeWeekdaysShort(m) {
         return m === true
             ? shiftWeekdays(this._weekdaysShort, this._week.dow)
             : m
-            ? this._weekdaysShort[m.day()]
-            : this._weekdaysShort;
+              ? this._weekdaysShort[m.day()]
+              : this._weekdaysShort;
     }
 
     function localeWeekdaysMin(m) {
         return m === true
             ? shiftWeekdays(this._weekdaysMin, this._week.dow)
             : m
-            ? this._weekdaysMin[m.day()]
-            : this._weekdaysMin;
+              ? this._weekdaysMin[m.day()]
+              : this._weekdaysMin;
     }
 
     function handleStrictParse$1(weekdayName, format, strict) {
@@ -21325,7 +21710,8 @@ function selfClosing (tag) { return closeRE.test(tag) }
         if (!this.isValid()) {
             return input != null ? this : NaN;
         }
-        var day = this._isUTC ? this._d.getUTCDay() : this._d.getDay();
+
+        var day = get(this, 'Day');
         if (input != null) {
             input = parseWeekday(input, this.localeData());
             return this.add(input - day, 'd');
@@ -21524,13 +21910,6 @@ function selfClosing (tag) { return closeRE.test(tag) }
     meridiem('a', true);
     meridiem('A', false);
 
-    // ALIASES
-
-    addUnitAlias('hour', 'h');
-
-    // PRIORITY
-    addUnitPriority('hour', 13);
-
     // PARSING
 
     function matchMeridiem(isStrict, locale) {
@@ -21539,9 +21918,9 @@ function selfClosing (tag) { return closeRE.test(tag) }
 
     addRegexToken('a', matchMeridiem);
     addRegexToken('A', matchMeridiem);
-    addRegexToken('H', match1to2);
-    addRegexToken('h', match1to2);
-    addRegexToken('k', match1to2);
+    addRegexToken('H', match1to2, match1to2HasZero);
+    addRegexToken('h', match1to2, match1to2NoLeadingZero);
+    addRegexToken('k', match1to2, match1to2NoLeadingZero);
     addRegexToken('HH', match1to2, match2);
     addRegexToken('hh', match1to2, match2);
     addRegexToken('kk', match1to2, match2);
@@ -21689,6 +22068,12 @@ function selfClosing (tag) { return closeRE.test(tag) }
         return globalLocale;
     }
 
+    function isLocaleNameSane(name) {
+        // Prevent names that look like filesystem paths, i.e contain '/' or '\'
+        // Ensure name is available and function returns boolean
+        return !!(name && name.match('^[^/\\\\]*$'));
+    }
+
     function loadLocale(name) {
         var oldLocale = null,
             aliasedRequire;
@@ -21697,7 +22082,8 @@ function selfClosing (tag) { return closeRE.test(tag) }
             locales[name] === undefined &&
             typeof module !== 'undefined' &&
             module &&
-            module.exports
+            module.exports &&
+            isLocaleNameSane(name)
         ) {
             try {
                 oldLocale = globalLocale._abbr;
@@ -21877,21 +22263,21 @@ function selfClosing (tag) { return closeRE.test(tag) }
                 a[MONTH] < 0 || a[MONTH] > 11
                     ? MONTH
                     : a[DATE] < 1 || a[DATE] > daysInMonth(a[YEAR], a[MONTH])
-                    ? DATE
-                    : a[HOUR] < 0 ||
-                      a[HOUR] > 24 ||
-                      (a[HOUR] === 24 &&
-                          (a[MINUTE] !== 0 ||
-                              a[SECOND] !== 0 ||
-                              a[MILLISECOND] !== 0))
-                    ? HOUR
-                    : a[MINUTE] < 0 || a[MINUTE] > 59
-                    ? MINUTE
-                    : a[SECOND] < 0 || a[SECOND] > 59
-                    ? SECOND
-                    : a[MILLISECOND] < 0 || a[MILLISECOND] > 999
-                    ? MILLISECOND
-                    : -1;
+                      ? DATE
+                      : a[HOUR] < 0 ||
+                          a[HOUR] > 24 ||
+                          (a[HOUR] === 24 &&
+                              (a[MINUTE] !== 0 ||
+                                  a[SECOND] !== 0 ||
+                                  a[MILLISECOND] !== 0))
+                        ? HOUR
+                        : a[MINUTE] < 0 || a[MINUTE] > 59
+                          ? MINUTE
+                          : a[SECOND] < 0 || a[SECOND] > 59
+                            ? SECOND
+                            : a[MILLISECOND] < 0 || a[MILLISECOND] > 999
+                              ? MILLISECOND
+                              : -1;
 
             if (
                 getParsingFlags(m)._overflowDayOfYear &&
@@ -21914,8 +22300,10 @@ function selfClosing (tag) { return closeRE.test(tag) }
 
     // iso 8601 regex
     // 0000-00-00 0000-W00 or 0000-W00-0 + T + 00 or 00:00 or 00:00:00 or 00:00:00.000 + +00:00 or +0000 or +00)
-    var extendedIsoRegex = /^\s*((?:[+-]\d{6}|\d{4})-(?:\d\d-\d\d|W\d\d-\d|W\d\d|\d\d\d|\d\d))(?:(T| )(\d\d(?::\d\d(?::\d\d(?:[.,]\d+)?)?)?)([+-]\d\d(?::?\d\d)?|\s*Z)?)?$/,
-        basicIsoRegex = /^\s*((?:[+-]\d{6}|\d{4})(?:\d\d\d\d|W\d\d\d|W\d\d|\d\d\d|\d\d|))(?:(T| )(\d\d(?:\d\d(?:\d\d(?:[.,]\d+)?)?)?)([+-]\d\d(?::?\d\d)?|\s*Z)?)?$/,
+    var extendedIsoRegex =
+            /^\s*((?:[+-]\d{6}|\d{4})-(?:\d\d-\d\d|W\d\d-\d|W\d\d|\d\d\d|\d\d))(?:(T| )(\d\d(?::\d\d(?::\d\d(?:[.,]\d+)?)?)?)([+-]\d\d(?::?\d\d)?|\s*Z)?)?$/,
+        basicIsoRegex =
+            /^\s*((?:[+-]\d{6}|\d{4})(?:\d\d\d\d|W\d\d\d|W\d\d|\d\d\d|\d\d|))(?:(T| )(\d\d(?:\d\d(?:\d\d(?:[.,]\d+)?)?)?)([+-]\d\d(?::?\d\d)?|\s*Z)?)?$/,
         tzRegex = /Z|[+-]\d\d(?::?\d\d)?/,
         isoDates = [
             ['YYYYYY-MM-DD', /[+-]\d{6}-\d\d-\d\d/],
@@ -21946,7 +22334,8 @@ function selfClosing (tag) { return closeRE.test(tag) }
         ],
         aspNetJsonRegex = /^\/?Date\((-?\d+)/i,
         // RFC 2822 regex: For details see https://tools.ietf.org/html/rfc2822#section-3.3
-        rfc2822 = /^(?:(Mon|Tue|Wed|Thu|Fri|Sat|Sun),?\s)?(\d{1,2})\s(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s(\d{2,4})\s(\d\d):(\d\d)(?::(\d\d))?\s(?:(UT|GMT|[ECMP][SD]T)|([Zz])|([+-]\d{4}))$/,
+        rfc2822 =
+            /^(?:(Mon|Tue|Wed|Thu|Fri|Sat|Sun),?\s)?(\d{1,2})\s(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s(\d{2,4})\s(\d\d):(\d\d)(?::(\d\d))?\s(?:(UT|GMT|[ECMP][SD]T)|([Zz])|([+-]\d{4}))$/,
         obsOffsets = {
             UT: 0,
             GMT: 0,
@@ -21969,12 +22358,13 @@ function selfClosing (tag) { return closeRE.test(tag) }
             allowTime,
             dateFormat,
             timeFormat,
-            tzFormat;
+            tzFormat,
+            isoDatesLen = isoDates.length,
+            isoTimesLen = isoTimes.length;
 
         if (match) {
             getParsingFlags(config).iso = true;
-
-            for (i = 0, l = isoDates.length; i < l; i++) {
+            for (i = 0, l = isoDatesLen; i < l; i++) {
                 if (isoDates[i][1].exec(match[1])) {
                     dateFormat = isoDates[i][0];
                     allowTime = isoDates[i][2] !== false;
@@ -21986,7 +22376,7 @@ function selfClosing (tag) { return closeRE.test(tag) }
                 return;
             }
             if (match[3]) {
-                for (i = 0, l = isoTimes.length; i < l; i++) {
+                for (i = 0, l = isoTimesLen; i < l; i++) {
                     if (isoTimes[i][1].exec(match[3])) {
                         // match[2] should be 'T' or space
                         timeFormat = (match[2] || ' ') + isoTimes[i][0];
@@ -22053,7 +22443,7 @@ function selfClosing (tag) { return closeRE.test(tag) }
     function preprocessRFC2822(s) {
         // Remove comments and folding whitespace and replace multiple-spaces with a single space
         return s
-            .replace(/\([^)]*\)|[\n\t]/g, ' ')
+            .replace(/\([^()]*\)|[\n\t]/g, ' ')
             .replace(/(\s\s+)/g, ' ')
             .replace(/^\s\s*/, '')
             .replace(/\s\s*$/, '');
@@ -22366,12 +22756,13 @@ function selfClosing (tag) { return closeRE.test(tag) }
             skipped,
             stringLength = string.length,
             totalParsedInputLength = 0,
-            era;
+            era,
+            tokenLen;
 
         tokens =
             expandFormat(config._f, config._locale).match(formattingTokens) || [];
-
-        for (i = 0; i < tokens.length; i++) {
+        tokenLen = tokens.length;
+        for (i = 0; i < tokenLen; i++) {
             token = tokens[i];
             parsedInput = (string.match(getParseRegexForToken(token, config)) ||
                 [])[0];
@@ -22466,15 +22857,16 @@ function selfClosing (tag) { return closeRE.test(tag) }
             i,
             currentScore,
             validFormatFound,
-            bestFormatIsValid = false;
+            bestFormatIsValid = false,
+            configfLen = config._f.length;
 
-        if (config._f.length === 0) {
+        if (configfLen === 0) {
             getParsingFlags(config).invalidFormat = true;
             config._d = new Date(NaN);
             return;
         }
 
-        for (i = 0; i < config._f.length; i++) {
+        for (i = 0; i < configfLen; i++) {
             currentScore = 0;
             validFormatFound = false;
             tempConfig = copyConfig({}, config);
@@ -22715,7 +23107,8 @@ function selfClosing (tag) { return closeRE.test(tag) }
     function isDurationValid(m) {
         var key,
             unitHasDecimal = false,
-            i;
+            i,
+            orderLen = ordering.length;
         for (key in m) {
             if (
                 hasOwnProp(m, key) &&
@@ -22728,7 +23121,7 @@ function selfClosing (tag) { return closeRE.test(tag) }
             }
         }
 
-        for (i = 0; i < ordering.length; ++i) {
+        for (i = 0; i < orderLen; ++i) {
             if (m[ordering[i]]) {
                 if (unitHasDecimal) {
                     return false; // only allow non-integers for smallest unit
@@ -23053,7 +23446,8 @@ function selfClosing (tag) { return closeRE.test(tag) }
         // from http://docs.closure-library.googlecode.com/git/closure_goog_date_date.js.source.html
         // somewhat more in line with 4.4.3.2 2004 spec, but allows decimal anywhere
         // and further modified to allow for strings containing both week and day
-        isoRegex = /^(-|\+)?P(?:([-+]?[0-9,.]*)Y)?(?:([-+]?[0-9,.]*)M)?(?:([-+]?[0-9,.]*)W)?(?:([-+]?[0-9,.]*)D)?(?:T(?:([-+]?[0-9,.]*)H)?(?:([-+]?[0-9,.]*)M)?(?:([-+]?[0-9,.]*)S)?)?$/;
+        isoRegex =
+            /^(-|\+)?P(?:([-+]?[0-9,.]*)Y)?(?:([-+]?[0-9,.]*)M)?(?:([-+]?[0-9,.]*)W)?(?:([-+]?[0-9,.]*)D)?(?:T(?:([-+]?[0-9,.]*)H)?(?:([-+]?[0-9,.]*)M)?(?:([-+]?[0-9,.]*)S)?)?$/;
 
     function createDuration(input, key) {
         var duration = input,
@@ -23274,9 +23668,10 @@ function selfClosing (tag) { return closeRE.test(tag) }
                 'ms',
             ],
             i,
-            property;
+            property,
+            propertyLen = properties.length;
 
-        for (i = 0; i < properties.length; i += 1) {
+        for (i = 0; i < propertyLen; i += 1) {
             property = properties[i];
             propertyTest = propertyTest || hasOwnProp(input, property);
         }
@@ -23323,16 +23718,16 @@ function selfClosing (tag) { return closeRE.test(tag) }
         return diff < -6
             ? 'sameElse'
             : diff < -1
-            ? 'lastWeek'
-            : diff < 0
-            ? 'lastDay'
-            : diff < 1
-            ? 'sameDay'
-            : diff < 2
-            ? 'nextDay'
-            : diff < 7
-            ? 'nextWeek'
-            : 'sameElse';
+              ? 'lastWeek'
+              : diff < 0
+                ? 'lastDay'
+                : diff < 1
+                  ? 'sameDay'
+                  : diff < 2
+                    ? 'nextDay'
+                    : diff < 7
+                      ? 'nextWeek'
+                      : 'sameElse';
     }
 
     function calendar$1(time, formats) {
@@ -23899,19 +24294,17 @@ function selfClosing (tag) { return closeRE.test(tag) }
     addRegexToken('NNNN', matchEraName);
     addRegexToken('NNNNN', matchEraNarrow);
 
-    addParseToken(['N', 'NN', 'NNN', 'NNNN', 'NNNNN'], function (
-        input,
-        array,
-        config,
-        token
-    ) {
-        var era = config._locale.erasParse(input, token, config._strict);
-        if (era) {
-            getParsingFlags(config).era = era;
-        } else {
-            getParsingFlags(config).invalidEra = input;
+    addParseToken(
+        ['N', 'NN', 'NNN', 'NNNN', 'NNNNN'],
+        function (input, array, config, token) {
+            var era = config._locale.erasParse(input, token, config._strict);
+            if (era) {
+                getParsingFlags(config).era = era;
+            } else {
+                getParsingFlags(config).invalidEra = input;
+            }
         }
-    });
+    );
 
     addRegexToken('y', matchUnsigned);
     addRegexToken('yy', matchUnsigned);
@@ -24142,16 +24535,22 @@ function selfClosing (tag) { return closeRE.test(tag) }
             mixedPieces = [],
             i,
             l,
+            erasName,
+            erasAbbr,
+            erasNarrow,
             eras = this.eras();
 
         for (i = 0, l = eras.length; i < l; ++i) {
-            namePieces.push(regexEscape(eras[i].name));
-            abbrPieces.push(regexEscape(eras[i].abbr));
-            narrowPieces.push(regexEscape(eras[i].narrow));
+            erasName = regexEscape(eras[i].name);
+            erasAbbr = regexEscape(eras[i].abbr);
+            erasNarrow = regexEscape(eras[i].narrow);
 
-            mixedPieces.push(regexEscape(eras[i].name));
-            mixedPieces.push(regexEscape(eras[i].abbr));
-            mixedPieces.push(regexEscape(eras[i].narrow));
+            namePieces.push(erasName);
+            abbrPieces.push(erasAbbr);
+            narrowPieces.push(erasNarrow);
+            mixedPieces.push(erasName);
+            mixedPieces.push(erasAbbr);
+            mixedPieces.push(erasNarrow);
         }
 
         this._erasRegex = new RegExp('^(' + mixedPieces.join('|') + ')', 'i');
@@ -24184,14 +24583,6 @@ function selfClosing (tag) { return closeRE.test(tag) }
 
     // ALIASES
 
-    addUnitAlias('weekYear', 'gg');
-    addUnitAlias('isoWeekYear', 'GG');
-
-    // PRIORITY
-
-    addUnitPriority('weekYear', 1);
-    addUnitPriority('isoWeekYear', 1);
-
     // PARSING
 
     addRegexToken('G', matchSigned);
@@ -24203,14 +24594,12 @@ function selfClosing (tag) { return closeRE.test(tag) }
     addRegexToken('GGGGG', match1to6, match6);
     addRegexToken('ggggg', match1to6, match6);
 
-    addWeekParseToken(['gggg', 'ggggg', 'GGGG', 'GGGGG'], function (
-        input,
-        week,
-        config,
-        token
-    ) {
-        week[token.substr(0, 2)] = toInt(input);
-    });
+    addWeekParseToken(
+        ['gggg', 'ggggg', 'GGGG', 'GGGGG'],
+        function (input, week, config, token) {
+            week[token.substr(0, 2)] = toInt(input);
+        }
+    );
 
     addWeekParseToken(['gg', 'GG'], function (input, week, config, token) {
         week[token] = hooks.parseTwoDigitYear(input);
@@ -24223,7 +24612,7 @@ function selfClosing (tag) { return closeRE.test(tag) }
             this,
             input,
             this.week(),
-            this.weekday(),
+            this.weekday() + this.localeData()._week.dow,
             this.localeData()._week.dow,
             this.localeData()._week.doy
         );
@@ -24285,14 +24674,6 @@ function selfClosing (tag) { return closeRE.test(tag) }
 
     addFormatToken('Q', 0, 'Qo', 'quarter');
 
-    // ALIASES
-
-    addUnitAlias('quarter', 'Q');
-
-    // PRIORITY
-
-    addUnitPriority('quarter', 7);
-
     // PARSING
 
     addRegexToken('Q', match1);
@@ -24312,16 +24693,9 @@ function selfClosing (tag) { return closeRE.test(tag) }
 
     addFormatToken('D', ['DD', 2], 'Do', 'date');
 
-    // ALIASES
-
-    addUnitAlias('date', 'D');
-
-    // PRIORITY
-    addUnitPriority('date', 9);
-
     // PARSING
 
-    addRegexToken('D', match1to2);
+    addRegexToken('D', match1to2, match1to2NoLeadingZero);
     addRegexToken('DD', match1to2, match2);
     addRegexToken('Do', function (isStrict, locale) {
         // TODO: Remove "ordinalParse" fallback in next major release.
@@ -24342,13 +24716,6 @@ function selfClosing (tag) { return closeRE.test(tag) }
     // FORMATTING
 
     addFormatToken('DDD', ['DDDD', 3], 'DDDo', 'dayOfYear');
-
-    // ALIASES
-
-    addUnitAlias('dayOfYear', 'DDD');
-
-    // PRIORITY
-    addUnitPriority('dayOfYear', 4);
 
     // PARSING
 
@@ -24374,17 +24741,9 @@ function selfClosing (tag) { return closeRE.test(tag) }
 
     addFormatToken('m', ['mm', 2], 0, 'minute');
 
-    // ALIASES
-
-    addUnitAlias('minute', 'm');
-
-    // PRIORITY
-
-    addUnitPriority('minute', 14);
-
     // PARSING
 
-    addRegexToken('m', match1to2);
+    addRegexToken('m', match1to2, match1to2HasZero);
     addRegexToken('mm', match1to2, match2);
     addParseToken(['m', 'mm'], MINUTE);
 
@@ -24396,17 +24755,9 @@ function selfClosing (tag) { return closeRE.test(tag) }
 
     addFormatToken('s', ['ss', 2], 0, 'second');
 
-    // ALIASES
-
-    addUnitAlias('second', 's');
-
-    // PRIORITY
-
-    addUnitPriority('second', 15);
-
     // PARSING
 
-    addRegexToken('s', match1to2);
+    addRegexToken('s', match1to2, match1to2HasZero);
     addRegexToken('ss', match1to2, match2);
     addParseToken(['s', 'ss'], SECOND);
 
@@ -24443,14 +24794,6 @@ function selfClosing (tag) { return closeRE.test(tag) }
     addFormatToken(0, ['SSSSSSSSS', 9], 0, function () {
         return this.millisecond() * 1000000;
     });
-
-    // ALIASES
-
-    addUnitAlias('millisecond', 'ms');
-
-    // PRIORITY
-
-    addUnitPriority('millisecond', 16);
 
     // PARSING
 
@@ -24759,12 +25102,12 @@ function selfClosing (tag) { return closeRE.test(tag) }
                     toInt((number % 100) / 10) === 1
                         ? 'th'
                         : b === 1
-                        ? 'st'
-                        : b === 2
-                        ? 'nd'
-                        : b === 3
-                        ? 'rd'
-                        : 'th';
+                          ? 'st'
+                          : b === 2
+                            ? 'nd'
+                            : b === 3
+                              ? 'rd'
+                              : 'th';
             return number + output;
         },
     });
@@ -24937,19 +25280,6 @@ function selfClosing (tag) { return closeRE.test(tag) }
         }
     }
 
-    // TODO: Use this.as('ms')?
-    function valueOf$1() {
-        if (!this.isValid()) {
-            return NaN;
-        }
-        return (
-            this._milliseconds +
-            this._days * 864e5 +
-            (this._months % 12) * 2592e6 +
-            toInt(this._months / 12) * 31536e6
-        );
-    }
-
     function makeAs(alias) {
         return function () {
             return this.as(alias);
@@ -24964,7 +25294,8 @@ function selfClosing (tag) { return closeRE.test(tag) }
         asWeeks = makeAs('w'),
         asMonths = makeAs('M'),
         asQuarters = makeAs('Q'),
-        asYears = makeAs('y');
+        asYears = makeAs('y'),
+        valueOf$1 = asMilliseconds;
 
     function clone$1() {
         return createDuration(this);
@@ -25233,7 +25564,7 @@ function selfClosing (tag) { return closeRE.test(tag) }
 
     //! moment.js
 
-    hooks.version = '2.29.1';
+    hooks.version = '2.30.1';
 
     setHookCallback(createLocal);
 
@@ -25282,7 +25613,7 @@ function selfClosing (tag) { return closeRE.test(tag) }
 
 })));
 
-},{}],48:[function(require,module,exports){
+},{}],51:[function(require,module,exports){
 assert.notEqual = notEqual
 assert.notOk = notOk
 assert.equal = equal
@@ -25306,7 +25637,7 @@ function assert (t, m) {
   if (!t) throw new Error(m || 'AssertionError')
 }
 
-},{}],49:[function(require,module,exports){
+},{}],52:[function(require,module,exports){
 var splice = require('remove-array-items')
 var nanotiming = require('nanotiming')
 var assert = require('assert')
@@ -25470,7 +25801,7 @@ Nanobus.prototype._emit = function (arr, eventName, data, uuid) {
   }
 }
 
-},{"assert":48,"nanotiming":66,"remove-array-items":71}],50:[function(require,module,exports){
+},{"assert":51,"nanotiming":69,"remove-array-items":74}],53:[function(require,module,exports){
 var assert = require('assert')
 
 var safeExternalLink = /(noopener|noreferrer) (noopener|noreferrer)/
@@ -25515,7 +25846,7 @@ function href (cb, root) {
   })
 }
 
-},{"assert":48}],51:[function(require,module,exports){
+},{"assert":51}],54:[function(require,module,exports){
 'use strict'
 
 var trailingNewlineRegex = /\n[\s]+$/
@@ -25649,7 +25980,7 @@ module.exports = function appendChild (el, childs) {
   }
 }
 
-},{}],52:[function(require,module,exports){
+},{}],55:[function(require,module,exports){
 'use strict'
 
 module.exports = [
@@ -25659,17 +25990,17 @@ module.exports = [
   'readonly', 'required', 'reversed', 'selected'
 ]
 
-},{}],53:[function(require,module,exports){
+},{}],56:[function(require,module,exports){
 module.exports = require('./dom')(document)
 
-},{"./dom":55}],54:[function(require,module,exports){
+},{"./dom":58}],57:[function(require,module,exports){
 'use strict'
 
 module.exports = [
   'indeterminate'
 ]
 
-},{}],55:[function(require,module,exports){
+},{}],58:[function(require,module,exports){
 'use strict'
 
 var hyperx = require('hyperx')
@@ -25787,7 +26118,7 @@ module.exports = function (document) {
   return exports
 }
 
-},{"./append-child":51,"./bool-props":52,"./direct-props":54,"./svg-tags":56,"hyperx":46}],56:[function(require,module,exports){
+},{"./append-child":54,"./bool-props":55,"./direct-props":57,"./svg-tags":59,"hyperx":49}],59:[function(require,module,exports){
 'use strict'
 
 module.exports = [
@@ -25807,7 +26138,7 @@ module.exports = [
   'tspan', 'use', 'view', 'vkern'
 ]
 
-},{}],57:[function(require,module,exports){
+},{}],60:[function(require,module,exports){
 var assert = require('assert')
 
 var emojis = {
@@ -25972,7 +26303,7 @@ function pad (str) {
   return str.length !== 2 ? 0 + str : str
 }
 
-},{"assert":84}],58:[function(require,module,exports){
+},{"assert":89}],61:[function(require,module,exports){
 module.exports = LRU
 
 function LRU (opts) {
@@ -26110,7 +26441,7 @@ LRU.prototype.evict = function () {
   this.remove(this.tail)
 }
 
-},{}],59:[function(require,module,exports){
+},{}],62:[function(require,module,exports){
 var assert = require('nanoassert')
 var morph = require('./lib/morph')
 
@@ -26275,7 +26606,7 @@ function same (a, b) {
   return false
 }
 
-},{"./lib/morph":61,"nanoassert":48}],60:[function(require,module,exports){
+},{"./lib/morph":64,"nanoassert":51}],63:[function(require,module,exports){
 module.exports = [
   // attribute events (can be set with attributes)
   'onclick',
@@ -26322,7 +26653,7 @@ module.exports = [
   'onfocusout'
 ]
 
-},{}],61:[function(require,module,exports){
+},{}],64:[function(require,module,exports){
 var events = require('./events')
 var eventsLength = events.length
 
@@ -26497,7 +26828,7 @@ function updateAttribute (newNode, oldNode, name) {
   }
 }
 
-},{"./events":60}],62:[function(require,module,exports){
+},{"./events":63}],65:[function(require,module,exports){
 var reg = /([^?=&]+)(=([^&]*))?/g
 var assert = require('assert')
 
@@ -26521,7 +26852,7 @@ function qs (url) {
   return obj
 }
 
-},{"assert":48}],63:[function(require,module,exports){
+},{"assert":51}],66:[function(require,module,exports){
 'use strict'
 
 var assert = require('assert')
@@ -26558,7 +26889,7 @@ function nanoraf (render, raf) {
   }
 }
 
-},{"assert":48}],64:[function(require,module,exports){
+},{"assert":51}],67:[function(require,module,exports){
 var assert = require('assert')
 var wayfarer = require('wayfarer')
 
@@ -26614,7 +26945,7 @@ function pathname (routename, isElectron) {
   return decodeURI(routename.replace(suffix, '').replace(normalize, '/'))
 }
 
-},{"assert":48,"wayfarer":75}],65:[function(require,module,exports){
+},{"assert":51,"wayfarer":78}],68:[function(require,module,exports){
 var assert = require('assert')
 
 var hasWindow = typeof window !== 'undefined'
@@ -26671,7 +27002,7 @@ NanoScheduler.prototype.setTimeout = function (cb) {
 
 module.exports = createScheduler
 
-},{"assert":48}],66:[function(require,module,exports){
+},{"assert":51}],69:[function(require,module,exports){
 var scheduler = require('nanoscheduler')()
 var assert = require('assert')
 
@@ -26721,7 +27052,7 @@ function noop (cb) {
   }
 }
 
-},{"assert":48,"nanoscheduler":65}],67:[function(require,module,exports){
+},{"assert":51,"nanoscheduler":68}],70:[function(require,module,exports){
 var assert = require('assert')
 
 module.exports = objectChangeCallsite
@@ -26758,7 +27089,7 @@ function strip (str) {
   return '\n' + arr.join('\n')
 }
 
-},{"assert":84}],68:[function(require,module,exports){
+},{"assert":89}],71:[function(require,module,exports){
 var scheduler = require('nanoscheduler')()
 var assert = require('assert')
 
@@ -26818,7 +27149,7 @@ function onPerformance (cb) {
   }
 }
 
-},{"assert":48,"nanoscheduler":65}],69:[function(require,module,exports){
+},{"assert":51,"nanoscheduler":68}],72:[function(require,module,exports){
 module.exports = plucker
 
 function plucker(path, object) {
@@ -26855,7 +27186,7 @@ function pluck(path) {
   }
 }
 
-},{}],70:[function(require,module,exports){
+},{}],73:[function(require,module,exports){
 module.exports = prettierBytes
 
 function prettierBytes (num) {
@@ -26887,7 +27218,7 @@ function prettierBytes (num) {
   }
 }
 
-},{}],71:[function(require,module,exports){
+},{}],74:[function(require,module,exports){
 'use strict'
 
 /**
@@ -26916,7 +27247,7 @@ module.exports = function removeItems (arr, startIdx, removeCount) {
   arr.length = len
 }
 
-},{}],72:[function(require,module,exports){
+},{}],75:[function(require,module,exports){
 module.exports = scrollToAnchor
 
 function scrollToAnchor (anchor, options) {
@@ -26928,7 +27259,7 @@ function scrollToAnchor (anchor, options) {
   }
 }
 
-},{}],73:[function(require,module,exports){
+},{}],76:[function(require,module,exports){
 var fastSafeStringify = require('fast-safe-stringify')
 var copy = require('clipboard-copy')
 
@@ -26945,7 +27276,7 @@ function stateCopy (obj) {
 
 module.exports = stateCopy
 
-},{"clipboard-copy":42,"fast-safe-stringify":44}],74:[function(require,module,exports){
+},{"clipboard-copy":45,"fast-safe-stringify":47}],77:[function(require,module,exports){
 /* eslint-disable node/no-deprecated-api */
 var assert = require('assert')
 
@@ -26983,7 +27314,7 @@ function getAllRoutes (router) {
   return transform(tree)
 }
 
-},{"assert":48}],75:[function(require,module,exports){
+},{"assert":51}],78:[function(require,module,exports){
 /* eslint-disable node/no-deprecated-api */
 var assert = require('assert')
 var trie = require('./trie')
@@ -27058,7 +27389,7 @@ function Wayfarer (dft) {
   }
 }
 
-},{"./trie":76,"assert":48}],76:[function(require,module,exports){
+},{"./trie":79,"assert":51}],79:[function(require,module,exports){
 /* eslint-disable node/no-deprecated-api */
 var assert = require('assert')
 
@@ -27199,23 +27530,25 @@ function has (object, property) {
   return Object.prototype.hasOwnProperty.call(object, property)
 }
 
-},{"assert":48}],77:[function(require,module,exports){
+},{"assert":51}],80:[function(require,module,exports){
 const choo = require('choo')
 const devtools = require('choo-devtools')
 const mainView = require('./views/main')
 const stokerStore = require('./stores/stoker')
 const chartStore = require('./stores/chart')
 const busStore = require('./stores/bus')
+const formStore = require('./stores/form-state')
 
 const app = choo()
 app.use(devtools())
 app.use(busStore)
 app.use(stokerStore)
 app.use(chartStore)
+app.use(formStore)
 app.route('/', mainView)
 app.mount('#app')
 
-},{"./stores/bus":78,"./stores/chart":79,"./stores/stoker":80,"./views/main":82,"choo":41,"choo-devtools":28}],78:[function(require,module,exports){
+},{"./stores/bus":81,"./stores/chart":82,"./stores/form-state":83,"./stores/stoker":84,"./views/main":87,"choo":44,"choo-devtools":31}],81:[function(require,module,exports){
 const axios = require('axios').default
 const { PORT } = require('../../variables.json')
 
@@ -27226,6 +27559,9 @@ function busStore (state, emitter) {
       console.log('ws connected')
       bus.on('store:get', (field) => {
         ws.send(JSON.stringify({ event: 'store:get', data: field }))
+      })
+      bus.on('store:set', (field, value) => {
+        ws.send(JSON.stringify({ event: 'store:set', data: [field, value] }))
       })
 
       // Now connection is open, get info
@@ -27251,7 +27587,7 @@ function busStore (state, emitter) {
 
 module.exports = busStore
 
-},{"../../variables.json":83,"axios":1}],79:[function(require,module,exports){
+},{"../../variables.json":88,"axios":1}],82:[function(require,module,exports){
 const Chart = require('chart.js')
 
 function chartStore (_, emitter) {
@@ -27346,7 +27682,29 @@ function chartStore (_, emitter) {
 
 module.exports = chartStore
 
-},{"chart.js":27}],80:[function(require,module,exports){
+},{"chart.js":30}],83:[function(require,module,exports){
+function formStore (state, emitter) {
+  // Blank state
+  state = Object.assign(state, {
+    formState: {
+      stokerIP: null
+    }
+  })
+
+  state.events.FORMSTATE_FIELDUPDATE = 'form-state:field-update'
+
+  emitter.on(state.events.FORMSTATE_FIELDUPDATE, (key, value) => {
+    if (key in state.formState) {
+      state.formState[key] = value
+    } else {
+      console.warn('cannot find key when updating form state', key)
+    }
+  })
+}
+
+module.exports = formStore
+
+},{}],84:[function(require,module,exports){
 const axios = require('axios').default
 
 const { PORT } = require('../../variables.json')
@@ -27368,6 +27726,21 @@ function stokerStore (state, emitter) {
       state.stokerIP = ip
       emitter.emit(state.events.RENDER)
     }
+  })
+
+  emitter.on('form-submit:stoker-settings', (formData) => {
+    state.errors = []
+
+    const initialStokerIP = state.stokerIP
+    for (const [key, value] of formData) {
+      state[key] = value
+    }
+
+    if (initialStokerIP !== state.stokerIP) {
+      emitter.emit('store:set', 'stokerIP', state.stokerIP)
+      state.errors.push(`Stoker ip changed to ${state.stokerIP}`)
+    }
+    emitter.emit(state.events.RENDER)
   })
 
   emitter.on('stoker:not-found', () => {
@@ -27416,7 +27789,139 @@ function stokerStore (state, emitter) {
 
 module.exports = stokerStore
 
-},{"../../variables.json":83,"axios":1}],81:[function(require,module,exports){
+},{"../../variables.json":88,"axios":1}],85:[function(require,module,exports){
+const html = require('choo/html')
+
+const defaultInputClasses = 'input-reset ba b--black-20 bg-transparent pa2 mb2 db w-100 border-box'
+
+function dateToLocal (date) {
+  if (typeof date === 'string' || !date) return date
+  const timezoneMS = date.getTimezoneOffset() * 60 * 1000
+  const localDate = new Date(date - timezoneMS)
+  const isoStr = localDate.toISOString()
+  const noMilliStr = isoStr.split('.')[0]
+  return noMilliStr.replace(/:\d{2}$/, '')
+}
+
+function fieldContainer (field) {
+  return html`<div class="measure mv2">
+    ${field}
+  </div>`
+}
+
+function optionalFieldContainer (el, opts) {
+  opts = Object.assign({}, {
+    container: true
+  }, opts)
+  return opts.container ? fieldContainer(el) : el
+}
+
+function labelEl (name, text, attributes) {
+  const combinedAttributes = Object.assign({}, {
+    class: 'f6 b db mb2'
+  }, attributes)
+  return html`<label for="${name}" ${combinedAttributes}>${text}</label>`
+}
+
+function inputField (name, label, value, attributes, type = 'text', opts) {
+  const combinedAttributes = Object.assign({}, {
+    class: defaultInputClasses
+  }, attributes)
+  return optionalFieldContainer(html`
+  ${labelEl(name, label)}
+  <input id="${name}" type="${type}" name="${name}" value="${value}"
+    ${combinedAttributes}>
+`, opts)
+}
+
+function checkboxField (name, label, value, attributes, opts) {
+  const combinedAttributes = Object.assign({}, {
+    class: defaultInputClasses
+  }, attributes)
+
+  // Cast checked to boolean
+  if ('checked' in combinedAttributes) combinedAttributes.checked = !!combinedAttributes.checked
+
+  return optionalFieldContainer(html`
+  <input id="${name}" type="checkbox" name="${name}" value="${value}"
+    ${combinedAttributes}>
+  ${labelEl(name, label, { class: 'lh-copy' })}
+`, opts)
+}
+
+function selectField (name, label, options, attributes, selected = [], opts) {
+  const combinedAttributes = Object.assign({}, {
+    class: defaultInputClasses
+  }, attributes)
+
+  return optionalFieldContainer(html`
+    ${labelEl(name, label)}
+    <select id="${name}" name="${name}" ${combinedAttributes}>
+      ${options.map((option) =>
+        html`<option value=${option.value}
+      ${selected.indexOf(option.value) !== -1 ? 'selected' : ''}>${option.text || option.value}</option>`)}
+    </select>
+  `, opts)
+}
+
+function textField (name, label, value, attributes) {
+  return inputField(name, label, value, attributes, 'text')
+}
+
+function passwordField (name, label, value, attributes) {
+  return inputField(name, label, value, attributes, 'password')
+}
+
+function numberField (name, label, value, attributes) {
+  return inputField(name, label, value, attributes, 'number')
+}
+
+function dateLocalField (name, label, value, attributes, opts) {
+  return inputField(name, label, dateToLocal(value), Object({
+    class: 'b pa2 input-reset ba bg-transparent w-100'
+  }, attributes), 'datetime-local')
+}
+
+function dateField (name, label, value, attributes, opts) {
+  return inputField(name, label, value, attributes, 'date')
+}
+
+function fileField (name, label, value, attributes) {
+  return inputField(name, label, value, attributes, 'file')
+}
+
+// based on https://codepen.io/nielsenramon/pen/bLPwRQ
+function toggleField (name, label, value, attributes = {}) {
+  attributes.checked = !!value
+  return html`
+  ${labelEl(name, label, { class: 'dib mr2 helvetica' })}
+  <div class="relative dib">
+    <input class="absolute z-5 w-100 h-100 o-0 pointer checkbox" type="checkbox"
+      value="${value}" id="${name}" name="${name}" ${attributes}>
+    <div class="relative z-4 dib w3 h2 bg-gray overflow-hidden br4 v-mid bg-animate checkbox-wrapper">
+      <div class="absolute right-auto left-0 w2 h2 br4 bg-silver shadow-4 t-cb checkbox-toggle"></div>
+    </div>
+  </div>
+    `
+}
+
+// Style
+function hideable (el, hide) {
+  const style = el.style
+  // Skip elements already setting display
+  if ('display' in style && style.display) return el
+
+  if (hide) el.style.display = 'none'
+
+  return el
+}
+
+module.exports = {
+  inputField,
+  textField
+}
+
+},{"choo/html":43}],86:[function(require,module,exports){
 const html = require('choo/html')
 
 function zeroPad (number) {
@@ -27462,12 +27967,14 @@ function renderLastest (state) {
 
 module.exports = renderLastest
 
-},{"choo/html":40}],82:[function(require,module,exports){
+},{"choo/html":43}],87:[function(require,module,exports){
 const html = require('choo/html')
+const { textField } = require('./components/fields')
 const renderLatest = require('./latest-stats')
 
 function mainView (state, emit) {
   const latestStats = renderLatest(state)
+  const formState = state.formState
 
   return html`
 <div>
@@ -27481,11 +27988,38 @@ function mainView (state, emit) {
           html`<option value="${i}" ${i === state.sessionID ? 'selected' : ''}>${session.name}</option>`
           )}
       </select>
+      <form class="pa4 black-80" onsubmit=${onSubmit} action="stoker-settings">
+        <article class="cf">
+          <div class="fl w-100 w-50-ns pa2">
+            ${textField('stokerIP',
+              'Stoker IP',
+              formState.stokerIP, {
+              oninput: stokerIPOnInput
+              })
+            }
+            <div class="measure">
+              <input type="submit" value="Save Settings" class="b ph3 pv2 input-reset bn bg-green grow pointer f6 dib white">
+            </div>
+          </div>
+        </article>
+      </form>
       <div class="latest-stats">
         ${latestStats}
       </div>
     </div>
 </div>`
+
+  function stokerIPOnInput () {
+    emit(state.events.FORMSTATE_FIELDUPDATE, 'stokerIP', this.value)
+  }
+
+  function onSubmit (e) {
+    e.preventDefault()
+    const form = this
+    const basePath = window.location.href.replace(/\/[^/]*.html/, '/')
+    const action = form.action.replace(basePath, '')
+    emit(`form-submit:${action}`, new FormData(form))
+  }
 
   function onChangeSession (e) {
     e.preventDefault()
@@ -27497,13 +28031,13 @@ function mainView (state, emit) {
 
 module.exports = mainView
 
-},{"./latest-stats":81,"choo/html":40}],83:[function(require,module,exports){
+},{"./components/fields":85,"./latest-stats":86,"choo/html":43}],88:[function(require,module,exports){
 module.exports={
   "WS_PORT": 4001,
   "PORT": 4000
 }
 
-},{}],84:[function(require,module,exports){
+},{}],89:[function(require,module,exports){
 // http://wiki.commonjs.org/wiki/Unit_Testing/1.0
 //
 // THIS IS NOT TESTED NOR LIKELY TO WORK OUTSIDE V8!
@@ -27865,14 +28399,14 @@ var objectKeys = Object.keys || function (obj) {
   return keys;
 };
 
-},{"util/":86}],85:[function(require,module,exports){
+},{"util/":91}],90:[function(require,module,exports){
 module.exports = function isBuffer(arg) {
   return arg && typeof arg === 'object'
     && typeof arg.copy === 'function'
     && typeof arg.fill === 'function'
     && typeof arg.readUInt8 === 'function';
 }
-},{}],86:[function(require,module,exports){
+},{}],91:[function(require,module,exports){
 (function (process,global){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -28462,7 +28996,7 @@ function hasOwnProperty(obj, prop) {
 }
 
 }).call(this,require("sycGbZ"),typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./support/isBuffer":85,"inherits":91,"sycGbZ":92}],87:[function(require,module,exports){
+},{"./support/isBuffer":90,"inherits":96,"sycGbZ":97}],92:[function(require,module,exports){
 /*!
  * The buffer module from node.js, for the browser.
  *
@@ -29613,7 +30147,7 @@ function assert (test, message) {
   if (!test) throw new Error(message || 'Failed assertion')
 }
 
-},{"base64-js":88,"ieee754":89}],88:[function(require,module,exports){
+},{"base64-js":93,"ieee754":94}],93:[function(require,module,exports){
 var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
 ;(function (exports) {
@@ -29735,7 +30269,7 @@ var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 	exports.fromByteArray = uint8ToBase64
 }(typeof exports === 'undefined' ? (this.base64js = {}) : exports))
 
-},{}],89:[function(require,module,exports){
+},{}],94:[function(require,module,exports){
 exports.read = function(buffer, offset, isLE, mLen, nBytes) {
   var e, m,
       eLen = nBytes * 8 - mLen - 1,
@@ -29821,7 +30355,7 @@ exports.write = function(buffer, value, offset, isLE, mLen, nBytes) {
   buffer[offset + i - d] |= s * 128;
 };
 
-},{}],90:[function(require,module,exports){
+},{}],95:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -30126,7 +30660,7 @@ function isUndefined(arg) {
   return arg === void 0;
 }
 
-},{}],91:[function(require,module,exports){
+},{}],96:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -30151,7 +30685,7 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],92:[function(require,module,exports){
+},{}],97:[function(require,module,exports){
 // shim for using process in browser
 
 var process = module.exports = {};
@@ -30216,4 +30750,4 @@ process.chdir = function (dir) {
     throw new Error('process.chdir is not supported');
 };
 
-},{}]},{},[77])
+},{}]},{},[80])
