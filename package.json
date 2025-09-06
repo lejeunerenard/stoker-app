@@ -6,7 +6,8 @@
   "scripts": {
     "build": "browserify src/public/app.js -o src/public/bundle.js",
     "update-env": "echo '{ \"code_version\": \"'`git rev-parse HEAD`'\"}' > src/env.json",
-    "test": "eslint src/**/*.js; tape tests/**.js",
+    "lint": "eslint src/**/*.js",
+    "test": "npm run lint; tape tests/**.js",
     "start": "npm run update-env; cross-env ELECTRON_ENV=development electron-forge start",
     "package": "npm run update-env; electron-forge package",
     "make": "npm run update-env; electron-forge make"
