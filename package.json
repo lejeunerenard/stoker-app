@@ -2,7 +2,11 @@
   "name": "stoker-app",
   "version": "1.0.0",
   "description": "",
-  "main": "src/index.js",
+  "main": "src/public/index.html",
+  "pear": {
+    "name": "stoker-app",
+    "gui": {}
+  },
   "scripts": {
     "build": "browserify src/public/app.js -o src/public/bundle.js",
     "update-env": "echo '{ \"code_version\": \"'`git rev-parse HEAD`'\"}' > src/env.json",
@@ -16,13 +20,7 @@
   "author": "Sean Zellmer <sean@lejeunerenard.com> (http://lejeunerenard.com/)",
   "license": "MIT",
   "devDependencies": {
-    "@electron-forge/cli": "^6.0.0-beta.54",
-    "@electron-forge/maker-deb": "^6.0.0-beta.54",
-    "@electron-forge/maker-rpm": "^6.0.0-beta.54",
-    "@electron-forge/maker-squirrel": "^6.0.0-beta.54",
-    "@electron-forge/maker-zip": "^6.0.0-beta.54",
     "cross-env": "^7.0.3",
-    "electron": "11.1.0",
     "eslint": "^7.14.0",
     "eslint-config-standard": "^16.0.2",
     "eslint-plugin-import": "^2.31.0",
@@ -35,37 +33,9 @@
     "chart.js": "^2.9.4",
     "choo": "^7.1.0",
     "choo-devtools": "^3.0.4",
-    "electron-squirrel-startup": "^1.0.0",
     "electron-store": "^6.0.1",
     "express": "^4.21.1",
     "mkdirp": "^1.0.4",
     "ws": "^7.5.10"
-  },
-  "config": {
-    "forge": {
-      "packagerConfig": {},
-      "makers": [
-        {
-          "name": "@electron-forge/maker-squirrel",
-          "config": {
-            "name": "stoker_app"
-          }
-        },
-        {
-          "name": "@electron-forge/maker-zip",
-          "platforms": [
-            "darwin"
-          ]
-        },
-        {
-          "name": "@electron-forge/maker-deb",
-          "config": {}
-        },
-        {
-          "name": "@electron-forge/maker-rpm",
-          "config": {}
-        }
-      ]
-    }
   }
 }
