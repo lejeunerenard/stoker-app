@@ -5,6 +5,7 @@
   "main": "src/public/index.html",
   "pear": {
     "name": "stoker-app",
+    "type": "desktop",
     "gui": {}
   },
   "scripts": {
