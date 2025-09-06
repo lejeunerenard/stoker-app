@@ -19,6 +19,12 @@ class StokerServer {
     saveSession(currentSession, sessionDir)
 
     const app = express()
+    this.app = app
+
+    this.on('data', (data) => {
+      currentSession.data.push(data)
+      saveSession(currentSession, sessionDir)
+    })
 
     const setupStoker = (ip) => {
       if (this.stoker) this.stoker.close()
@@ -30,8 +36,7 @@ class StokerServer {
       })
 
       this.stoker.on('data', (data) => {
-        currentSession.data.push(data)
-        saveSession(currentSession, sessionDir)
+        this.emit('data', data)
       })
 
       this.stoker.on('error', (e) => {
@@ -51,7 +56,7 @@ class StokerServer {
       this.wss.on('connection', (ws) => {
         console.log('client connected')
 
-        this.stoker.on('data', (data) => {
+        this.on('data', (data) => {
           ws.send(JSON.stringify({
             event: 'data',
             data: data
@@ -126,8 +131,6 @@ class StokerServer {
     app.get('/sessions', (req, res) => {
       res.send(JSON.stringify(sessions))
     })
-
-    this.app = app
   }
 
   emit (event, ...args) {
