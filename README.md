@@ -1,4 +1,4 @@
-# Stoker II App
+# Stoker App
 
 An app for tracking and controlling a stoker for grills & smokers.
 
