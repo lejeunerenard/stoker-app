@@ -1,9 +1,8 @@
 const Stoker = require('./stoker')
 const { loadSessions, createSession, saveSession } = require('./sessions')
 const path = require('path')
-const express = require('express')
-const WebSocket = require('ws')
-const mkdirp = require('mkdirp')
+const { mkdir } = require('fs')
+const { EventEmitter } = require('events')
 
 class StokerServer {
   constructor () {
@@ -17,7 +16,7 @@ class StokerServer {
     const currentSession = createSession()
     sessions.push(currentSession)
 
-    const app = express()
+    const app = new EventEmitter() // express()
     this.app = app
 
     this.on('data', (data) => {
@@ -96,40 +95,35 @@ class StokerServer {
           }
         })
       })
-
-      app.get('/ws-port', (_, res) => {
-        res.send(JSON.stringify(port))
-      })
     })
 
     app.on('sessions:set-dir', (dir) => {
       sessionDir = dir
-      mkdirp(sessionDir).then(() => {
+      mkdir(sessionDir, { recursive: true }, () => {
         sessions = sessions.concat(loadSessions(sessionDir))
       })
     })
 
-    app.use(express.static('src/public'))
+    // TODO Ensure the initial data request still works w/ the HRPC endpoint
+    // app.get('/data/:id', (req, res) => {
+    //   if (!('id' in req.params)) {
+    //     return res.send(400)
+    //   }
 
-    app.get('/data/:id', (req, res) => {
-      if (!('id' in req.params)) {
-        return res.send(400)
-      }
+    //   let id = req.params.id
+    //   if (id === 'current') {
+    //     id = sessions.length - 1
+    //   }
+    //   id = Number(id)
 
-      let id = req.params.id
-      if (id === 'current') {
-        id = sessions.length - 1
-      }
-      id = Number(id)
+    //   const session = sessions[id]
 
-      const session = sessions[id]
+    //   res.send(JSON.stringify(session))
+    // })
 
-      res.send(JSON.stringify(session))
-    })
-
-    app.get('/sessions', (req, res) => {
-      res.send(JSON.stringify(sessions))
-    })
+    // app.get('/sessions', (req, res) => {
+    //   res.send(JSON.stringify(sessions))
+    // })
   }
 
   emit (event, ...args) {
@@ -140,12 +134,7 @@ class StokerServer {
     this.app.on(event, ...args)
   }
 
-  listen (...args) {
-    return this.app.listen(...args)
-  }
-
   close () {
-    if (this.wss) this.wss.close()
     if (this.stoker) this.stoker.close()
   }
 }

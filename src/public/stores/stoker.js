@@ -1,6 +1,6 @@
-const axios = require('axios').default
+// const axios = require('axios').default
 
-const { PORT } = require('../../variables.json')
+// const { PORT } = require('../../variables.json')
 
 function stokerStore (state, emitter) {
   // Blank state
@@ -55,29 +55,29 @@ function stokerStore (state, emitter) {
     state.sessionID = id
     emitter.emit('chart:clear')
 
-    axios.get(`http://${window.location.hostname ? window.location.hostname : 'localhost'}:${PORT}/data/${id}`)
-      .then((response) => {
-        const session = response.data
-        const data = session.data
-        for (let i = 0; i < data.length; i++) {
-          const datapoint = data[i]
-          const update = i === data.length - 1
-          emitter.emit('chart:render', datapoint, update)
-        }
-      })
+    // axios.get(`http://${window.location.hostname ? window.location.hostname : 'localhost'}:${PORT}/data/${id}`)
+    //   .then((response) => {
+    //     const session = response.data
+    //     const data = session.data
+    //     for (let i = 0; i < data.length; i++) {
+    //       const datapoint = data[i]
+    //       const update = i === data.length - 1
+    //       emitter.emit('chart:render', datapoint, update)
+    //     }
+    //   })
   })
 
-  function getSessions () {
-    return axios.get(`http://${window.location.hostname ? window.location.hostname : 'localhost'}:${PORT}/sessions`)
-      .then((response) => {
-        state.sessions = response.data
-      })
-  }
+  // function getSessions () {
+  //   return axios.get(`http://${window.location.hostname ? window.location.hostname : 'localhost'}:${PORT}/sessions`)
+  //     .then((response) => {
+  //       state.sessions = response.data
+  //     })
+  // }
 
-  getSessions().then(() => {
-    emitter.emit(state.events.SESSION_SET, state.sessions.length - 1)
-    emitter.emit(state.events.RENDER)
-  })
+  // getSessions().then(() => {
+  //   emitter.emit(state.events.SESSION_SET, state.sessions.length - 1)
+  //   emitter.emit(state.events.RENDER)
+  // })
 }
 
 module.exports = stokerStore
