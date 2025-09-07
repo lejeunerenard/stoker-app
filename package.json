@@ -32,14 +32,42 @@
   },
   "dependencies": {
     "axios": "^0.21.0",
+    "bare-assert": "^1.1.0",
+    "bare-querystring": "^1.0.0",
+    "bare-utils": "^1.5.1",
     "chart.js": "^2.9.4",
     "choo": "^7.1.0",
     "choo-devtools": "^3.0.4",
     "electron-store": "^6.0.1",
     "express": "^4.21.1",
+    "framed-stream": "^1.0.1",
+    "hrpc": "^4.1.0",
+    "hypercore-storage": "^1.14.0",
     "hyperdb": "^4.16.1",
     "hyperschema": "^1.14.0",
     "mkdirp": "^1.0.4",
     "ws": "^7.5.10"
+  },
+  "imports": {
+    "assert": {
+      "bare": "bare-assert",
+      "default": "assert"
+    },
+    "events": {
+      "bare": "bare-events",
+      "default": "events"
+    },
+    "querystring": {
+      "bare": "bare-querystring",
+      "default": "querystring"
+    },
+    "fs": {
+      "bare": "bare-fs",
+      "default": "fs"
+    },
+    "path": {
+      "bare": "bare-path",
+      "default": "path"
+    }
   }
 }

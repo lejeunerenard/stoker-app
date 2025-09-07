@@ -10,6 +10,15 @@ test('store - basic', async (t) => {
   t.equals(await store.get('foo'), 'biz')
   t.end()
 })
+
+test('store - set returns bool if successful', async (t) => {
+  const store = new Store({
+    path: await tmp(t)
+  })
+  t.ok(await store.set('foo', 'biz'), 'returns bool')
+  t.end()
+})
+
 test('store - onDidChange', async (t) => {
   t.plan(3)
   const store = new Store({

@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "schema": [
+    {
+      "id": 0,
+      "name": "@stoker-app/store-get",
+      "request": {
+        "name": "@stoker-app/config-get-request"
+      },
+      "response": {
+        "name": "@stoker-app/config-get-response"
+      },
+      "version": 1
+    },
+    {
+      "id": 1,
+      "name": "@stoker-app/store-set",
+      "request": {
+        "name": "@stoker-app/config-set-request"
+      },
+      "response": {
+        "name": "@stoker-app/config-set-response"
+      },
+      "version": 1
+    }
+  ]
+}

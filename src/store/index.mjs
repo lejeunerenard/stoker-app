@@ -27,6 +27,8 @@ export class Store {
         fn(value, existing)
       }
     }
+
+    return true
   }
 
   async get (key) {

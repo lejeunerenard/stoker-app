@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "schema": [
     {
       "name": "config",
@@ -18,6 +18,67 @@
           "required": true,
           "type": "json",
           "version": 1
+        }
+      ]
+    },
+    {
+      "name": "config-get-request",
+      "namespace": "stoker-app",
+      "compact": true,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "key",
+          "required": true,
+          "type": "string",
+          "version": 2
+        }
+      ]
+    },
+    {
+      "name": "config-get-response",
+      "namespace": "stoker-app",
+      "compact": true,
+      "flagsPosition": 0,
+      "fields": [
+        {
+          "name": "value",
+          "type": "json",
+          "version": 2
+        }
+      ]
+    },
+    {
+      "name": "config-set-request",
+      "namespace": "stoker-app",
+      "compact": true,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "key",
+          "required": true,
+          "type": "string",
+          "version": 2
+        },
+        {
+          "name": "value",
+          "required": true,
+          "type": "json",
+          "version": 2
+        }
+      ]
+    },
+    {
+      "name": "config-set-response",
+      "namespace": "stoker-app",
+      "compact": true,
+      "flagsPosition": 0,
+      "fields": [
+        {
+          "name": "success",
+          "required": false,
+          "type": "bool",
+          "version": 2
         }
       ]
     }
