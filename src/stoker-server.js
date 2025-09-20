@@ -38,7 +38,7 @@ class StokerServer {
       })
 
       this.stoker.on('error', (e) => {
-        if (e.code === 'EHOSTUNREACH' || e.code === 'EHOSTDOWN' || e.code === 'ETIMEDOUT' || e.code === 'ECONNABORTED') {
+        if (e.code === 'EHOSTUNREACH' || e.code === 'EHOSTDOWN' || e.code === 'ETIMEDOUT' || e.code === 'ECONNABORTED' || e.code === 'ECONNREFUSED') {
           app.emit('stoker:not-found')
         } else {
           throw e
