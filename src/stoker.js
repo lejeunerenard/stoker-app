@@ -1,6 +1,7 @@
 const EventEmitter = require('events').EventEmitter
 const querystring = require('querystring')
 const axios = require('axios').default
+const http = require('http')
 
 class Stoker extends EventEmitter {
   constructor (ip, pollPeriod = 5 * 1000) {
@@ -24,25 +25,37 @@ class Stoker extends EventEmitter {
     this.pollData(pollPeriod)
   }
 
-  getData () {
-    return axios.get('http://' + this.ip + '/stoker.json?version=true', {
-      responseType: 'json',
-      timeout: 5 * 1000
+  async getData () {
+    const response = await new Promise((resolve, reject) => {
+      http.request('http://' + this.ip + '/stoker.json?version=true',
+        { responseType: 'json' })
+        .setTimeout(5 * 1000)
+        .on('response', (res) => {
+          // TODO Handle error HTTP status codes
+          let json = ''
+          res
+            .on('data', (chunk) => {
+              json += chunk.toString()
+            })
+            .on('end', () => resolve(JSON.parse(json)))
+        })
+        .on('error', (e) => reject(e))
+        .end()
+    }).catch((e) => {
+      this.emit('error', e)
     })
-      .then((response) => {
-        this.state = response.data
+    if (!response) return
 
-        const data = Object.assign({}, response.data, { timestamp: (new Date()).toISOString() })
-        if (data.stoker.sensors) {
-          for (let i = 0; i < data.stoker.sensors.length; i++) {
-            data.stoker.sensors[i].tempTarget = data.stoker.sensors[i].ta
-            data.stoker.sensors[i].tempCurrent = data.stoker.sensors[i].tc
-          }
-        }
-        this.emit('data', data)
-      }).catch((e) => {
-        this.emit('error', e)
-      })
+    this.state = response
+
+    const data = Object.assign({}, response, { timestamp: (new Date()).toISOString() })
+    if (data.stoker.sensors) {
+      for (let i = 0; i < data.stoker.sensors.length; i++) {
+        data.stoker.sensors[i].tempTarget = data.stoker.sensors[i].ta
+        data.stoker.sensors[i].tempCurrent = data.stoker.sensors[i].tc
+      }
+    }
+    this.emit('data', data)
   }
 
   pollData (period) {

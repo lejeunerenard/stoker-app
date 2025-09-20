@@ -33,6 +33,7 @@
   "dependencies": {
     "axios": "^0.21.0",
     "bare-assert": "^1.1.0",
+    "bare-http1": "^4.0.4",
     "bare-querystring": "^1.0.0",
     "bare-utils": "^1.5.1",
     "chart.js": "^2.9.4",
@@ -68,6 +69,10 @@
     "path": {
       "bare": "bare-path",
       "default": "path"
+    },
+    "http": {
+      "bare": "bare-http1",
+      "default": "http"
     }
   }
 }
