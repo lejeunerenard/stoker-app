@@ -1,6 +1,7 @@
 import Hyperschema from 'hyperschema'
 import Hyperdb from 'hyperdb/builder'
 import HRPCBuilder from 'hrpc'
+import { generateSchema, NS as STOKERII_NS } from './builder/rocks-bbq-stokerii/index.mjs'
 
 const SCHEMA_DIR = './spec/hyperschema'
 const DB_DIR = './spec/hyperdb'
@@ -76,6 +77,25 @@ stoker.register({
     {
       name: 'success',
       type: 'bool',
+      required: true
+    }
+  ]
+})
+
+generateSchema(schema)
+
+stoker.register({
+  name: 'stoker-datapoint',
+  compact: false,
+  fields: [
+    {
+      name: 'stoker',
+      type: `@${STOKERII_NS}/stoker`,
+      required: true
+    },
+    {
+      name: 'timestamp',
+      type: 'date',
       required: true
     }
   ]

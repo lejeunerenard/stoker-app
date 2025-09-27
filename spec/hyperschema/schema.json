@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "schema": [
     {
       "name": "config",
@@ -79,6 +79,168 @@
           "required": false,
           "type": "bool",
           "version": 2
+        }
+      ]
+    },
+    {
+      "name": "sensor-id",
+      "namespace": "rocks-bbq-stokerii",
+      "alias": "string",
+      "version": 3
+    },
+    {
+      "name": "blower-id",
+      "namespace": "rocks-bbq-stokerii",
+      "alias": "string",
+      "version": 3
+    },
+    {
+      "name": "stoker-version",
+      "namespace": "rocks-bbq-stokerii",
+      "alias": "string",
+      "version": 3
+    },
+    {
+      "name": "sensor",
+      "namespace": "rocks-bbq-stokerii",
+      "compact": false,
+      "flagsPosition": 7,
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "@rocks-bbq-stokerii/sensor-id",
+          "version": 3
+        },
+        {
+          "name": "name",
+          "required": true,
+          "type": "string",
+          "version": 3
+        },
+        {
+          "name": "al",
+          "required": true,
+          "type": "uint8",
+          "version": 3
+        },
+        {
+          "name": "ta",
+          "required": true,
+          "type": "float32",
+          "version": 3
+        },
+        {
+          "name": "th",
+          "required": true,
+          "type": "float32",
+          "version": 3
+        },
+        {
+          "name": "tl",
+          "required": true,
+          "type": "float32",
+          "version": 3
+        },
+        {
+          "name": "tc",
+          "required": true,
+          "type": "float32",
+          "version": 3
+        },
+        {
+          "name": "blower",
+          "required": false,
+          "type": "@rocks-bbq-stokerii/blower-id",
+          "version": 3
+        }
+      ]
+    },
+    {
+      "name": "blower",
+      "namespace": "rocks-bbq-stokerii",
+      "compact": false,
+      "flagsPosition": 2,
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "@rocks-bbq-stokerii/blower-id",
+          "version": 3
+        },
+        {
+          "name": "name",
+          "required": true,
+          "type": "string",
+          "version": 3
+        },
+        {
+          "name": "on",
+          "required": false,
+          "type": "bool",
+          "version": 3
+        }
+      ]
+    },
+    {
+      "name": "stoker",
+      "namespace": "rocks-bbq-stokerii",
+      "compact": false,
+      "flagsPosition": 2,
+      "fields": [
+        {
+          "name": "sensors",
+          "required": true,
+          "array": true,
+          "type": "@rocks-bbq-stokerii/sensor",
+          "version": 3
+        },
+        {
+          "name": "blowers",
+          "required": true,
+          "array": true,
+          "type": "@rocks-bbq-stokerii/blower",
+          "version": 3
+        },
+        {
+          "name": "version",
+          "required": false,
+          "type": "@rocks-bbq-stokerii/stoker-version",
+          "version": 3
+        }
+      ]
+    },
+    {
+      "name": "stoker-datapoint",
+      "namespace": "rocks-bbq-stokerii",
+      "compact": false,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "stoker",
+          "required": true,
+          "type": "@rocks-bbq-stokerii/stoker",
+          "version": 3
+        }
+      ]
+    },
+    {
+      "name": "stoker-datapoint",
+      "namespace": "stoker-app",
+      "compact": false,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "stoker",
+          "required": true,
+          "type": "@rocks-bbq-stokerii/stoker",
+          "version": 3
+        },
+        {
+          "name": "timestamp",
+          "required": true,
+          "type": "date",
+          "version": 3
         }
       ]
     }
