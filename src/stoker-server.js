@@ -47,56 +47,6 @@ class StokerServer {
     }
 
     app.on('stoker:setip', setupStoker)
-    app.on('stoker:setwsport', (port) => {
-      if (this.wss) this.wss.close()
-
-      this.wss = new WebSocket.Server({ port })
-      this.wss.on('connection', (ws) => {
-        console.log('client connected')
-
-        this.on('data', (data) => {
-          ws.send(JSON.stringify({
-            event: 'data',
-            data: data
-          }))
-        })
-
-        // Relay via websocket
-        app.on('stoker:not-found', () => {
-          ws.send(JSON.stringify({
-            event: 'stoker:not-found',
-            data: null
-          }))
-        })
-
-        ws.on('message', (msg) => {
-          if (msg instanceof Buffer) msg = msg.toString()
-          let event, data
-          try {
-            const json = JSON.parse(msg)
-            event = json.event
-            data = json.data
-          } catch (e) { return } // skip non JSON messages
-
-          switch (event) {
-            case 'store:get':
-              if (data === 'stokerIP') {
-                ws.send(JSON.stringify({
-                  event: 'store:get:stokerIP',
-                  data: this.stoker.ip
-                }))
-              }
-              break
-            case 'store:set':
-              if (data[0] === 'stokerIP') {
-                this.emit('stoker:setip', data[1])
-              }
-              break
-          }
-        })
-      })
-    })
-
     app.on('sessions:set-dir', (dir) => {
       sessionDir = dir
       mkdir(sessionDir, { recursive: true }, () => {
