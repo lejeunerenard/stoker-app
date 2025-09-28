@@ -8,7 +8,9 @@ const methods = new Map([
   ['@stoker-app/store-get', 0],
   [0, '@stoker-app/store-get'],
   ['@stoker-app/store-set', 1],
-  [1, '@stoker-app/store-set']
+  [1, '@stoker-app/store-set'],
+  ['@stoker-app/get-sessions', 2],
+  [2, '@stoker-app/get-sessions']
 ])
 
 class HRPC {
@@ -17,11 +19,13 @@ class HRPC {
     this._handlers = []
     this._requestEncodings = new Map([
       ['@stoker-app/store-get', getEncoding('@stoker-app/config-get-request')],
-      ['@stoker-app/store-set', getEncoding('@stoker-app/config-set-request')]
+      ['@stoker-app/store-set', getEncoding('@stoker-app/config-set-request')],
+      ['@stoker-app/get-sessions', getEncoding('@stoker-app/get-sessions-request')]
     ])
     this._responseEncodings = new Map([
       ['@stoker-app/store-get', getEncoding('@stoker-app/config-get-response')],
-      ['@stoker-app/store-set', getEncoding('@stoker-app/config-set-response')]
+      ['@stoker-app/store-set', getEncoding('@stoker-app/config-set-response')],
+      ['@stoker-app/get-sessions', getEncoding('@stoker-app/get-sessions-response')]
     ])
     this._rpc = new RPC(stream, async (req) => {
       const command = methods.get(req.command)
@@ -93,12 +97,20 @@ class HRPC {
     return this._call('@stoker-app/store-set', args)
   }
 
+  async getSessions (args) {
+    return this._call('@stoker-app/get-sessions', args)
+  }
+
   onStoreGet (responseFn) {
     this._handlers['@stoker-app/store-get'] = responseFn
   }
 
   onStoreSet (responseFn) {
     this._handlers['@stoker-app/store-set'] = responseFn
+  }
+
+  onGetSessions (responseFn) {
+    this._handlers['@stoker-app/get-sessions'] = responseFn
   }
 
   _requestIsStream (command) {

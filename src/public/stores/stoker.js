@@ -1,7 +1,3 @@
-// const axios = require('axios').default
-
-// const { PORT } = require('../../variables.json')
-
 function stokerStore (state, emitter) {
   // Blank state
   state = Object.assign(state, {
@@ -49,7 +45,9 @@ function stokerStore (state, emitter) {
     emitter.emit(state.events.RENDER)
   })
 
-  emitter.on(state.events.SESSION_SET, (id) => {
+  emitter.on(state.events.SESSION_SET, (session) => {
+    if (!session) throw Error('no session provided to `session:set`')
+    const { id } = session
     if (id === undefined) throw Error('no id provided to `session:set`')
 
     state.sessionID = id
@@ -67,17 +65,14 @@ function stokerStore (state, emitter) {
     //   })
   })
 
-  // function getSessions () {
-  //   return axios.get(`http://${window.location.hostname ? window.location.hostname : 'localhost'}:${PORT}/sessions`)
-  //     .then((response) => {
-  //       state.sessions = response.data
-  //     })
-  // }
+  emitter.once('rpc:ready', async (rpc) => {
+    const { sessions } = await rpc.getSessions()
+    state.sessions = sessions
 
-  // getSessions().then(() => {
-  //   emitter.emit(state.events.SESSION_SET, state.sessions.length - 1)
-  //   emitter.emit(state.events.RENDER)
-  // })
+    const latest = state.sessions[state.sessions.length - 1]
+    emitter.emit(state.events.SESSION_SET, latest)
+    emitter.emit(state.events.RENDER)
+  })
 }
 
 module.exports = stokerStore

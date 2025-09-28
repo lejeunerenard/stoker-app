@@ -51,4 +51,18 @@ rpc.onStoreSet(async ({ key, value }) => {
   return { success }
 })
 
+rpc.onGetSessions(async () => {
+  const sessions = [
+    {
+      id: {
+        createdOn: new Date(),
+        key: Buffer.from('deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef', 'hex')
+      },
+      name: 'Test Session'
+    }
+  ]
+
+  return { sessions }
+})
+
 console.log('Pearend started')

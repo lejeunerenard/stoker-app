@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 1,
   "schema": [
     {
       "name": "config",
@@ -31,7 +31,7 @@
           "name": "key",
           "required": true,
           "type": "string",
-          "version": 2
+          "version": 1
         }
       ]
     },
@@ -44,7 +44,7 @@
         {
           "name": "value",
           "type": "json",
-          "version": 2
+          "version": 1
         }
       ]
     },
@@ -58,13 +58,13 @@
           "name": "key",
           "required": true,
           "type": "string",
-          "version": 2
+          "version": 1
         },
         {
           "name": "value",
           "required": true,
           "type": "json",
-          "version": 2
+          "version": 1
         }
       ]
     },
@@ -78,7 +78,7 @@
           "name": "success",
           "required": false,
           "type": "bool",
-          "version": 2
+          "version": 1
         }
       ]
     },
@@ -86,19 +86,19 @@
       "name": "sensor-id",
       "namespace": "rocks-bbq-stokerii",
       "alias": "string",
-      "version": 3
+      "version": 1
     },
     {
       "name": "blower-id",
       "namespace": "rocks-bbq-stokerii",
       "alias": "string",
-      "version": 3
+      "version": 1
     },
     {
       "name": "stoker-version",
       "namespace": "rocks-bbq-stokerii",
       "alias": "string",
-      "version": 3
+      "version": 1
     },
     {
       "name": "sensor",
@@ -110,49 +110,49 @@
           "name": "id",
           "required": true,
           "type": "@rocks-bbq-stokerii/sensor-id",
-          "version": 3
+          "version": 1
         },
         {
           "name": "name",
           "required": true,
           "type": "string",
-          "version": 3
+          "version": 1
         },
         {
           "name": "al",
           "required": true,
           "type": "uint8",
-          "version": 3
+          "version": 1
         },
         {
           "name": "ta",
           "required": true,
           "type": "float32",
-          "version": 3
+          "version": 1
         },
         {
           "name": "th",
           "required": true,
           "type": "float32",
-          "version": 3
+          "version": 1
         },
         {
           "name": "tl",
           "required": true,
           "type": "float32",
-          "version": 3
+          "version": 1
         },
         {
           "name": "tc",
           "required": true,
           "type": "float32",
-          "version": 3
+          "version": 1
         },
         {
           "name": "blower",
           "required": false,
           "type": "@rocks-bbq-stokerii/blower-id",
-          "version": 3
+          "version": 1
         }
       ]
     },
@@ -166,19 +166,19 @@
           "name": "id",
           "required": true,
           "type": "@rocks-bbq-stokerii/blower-id",
-          "version": 3
+          "version": 1
         },
         {
           "name": "name",
           "required": true,
           "type": "string",
-          "version": 3
+          "version": 1
         },
         {
           "name": "on",
           "required": false,
           "type": "bool",
-          "version": 3
+          "version": 1
         }
       ]
     },
@@ -193,20 +193,20 @@
           "required": true,
           "array": true,
           "type": "@rocks-bbq-stokerii/sensor",
-          "version": 3
+          "version": 1
         },
         {
           "name": "blowers",
           "required": true,
           "array": true,
           "type": "@rocks-bbq-stokerii/blower",
-          "version": 3
+          "version": 1
         },
         {
           "name": "version",
           "required": false,
           "type": "@rocks-bbq-stokerii/stoker-version",
-          "version": 3
+          "version": 1
         }
       ]
     },
@@ -220,7 +220,47 @@
           "name": "stoker",
           "required": true,
           "type": "@rocks-bbq-stokerii/stoker",
-          "version": 3
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "session-id",
+      "namespace": "stoker-app",
+      "compact": false,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "createdOn",
+          "required": true,
+          "type": "date",
+          "version": 1
+        },
+        {
+          "name": "key",
+          "required": true,
+          "type": "fixed32",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "session",
+      "namespace": "stoker-app",
+      "compact": false,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "@stoker-app/session-id",
+          "version": 1
+        },
+        {
+          "name": "name",
+          "required": true,
+          "type": "string",
+          "version": 1
         }
       ]
     },
@@ -234,13 +274,35 @@
           "name": "stoker",
           "required": true,
           "type": "@rocks-bbq-stokerii/stoker",
-          "version": 3
+          "version": 1
         },
         {
           "name": "timestamp",
           "required": true,
           "type": "date",
-          "version": 3
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "get-sessions-request",
+      "namespace": "stoker-app",
+      "compact": false,
+      "flagsPosition": -1,
+      "fields": []
+    },
+    {
+      "name": "get-sessions-response",
+      "namespace": "stoker-app",
+      "compact": false,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "sessions",
+          "required": true,
+          "array": true,
+          "type": "@stoker-app/session",
+          "version": 1
         }
       ]
     }

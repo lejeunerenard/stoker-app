@@ -85,6 +85,38 @@ stoker.register({
 generateSchema(schema)
 
 stoker.register({
+  name: 'session-id',
+  fields: [
+    {
+      name: 'createdOn',
+      type: 'date',
+      required: true
+    },
+    {
+      name: 'key',
+      type: 'fixed32',
+      required: true
+    }
+  ]
+})
+
+stoker.register({
+  name: 'session',
+  fields: [
+    {
+      name: 'id',
+      type: `@${NS}/session-id`,
+      required: true
+    },
+    {
+      name: 'name',
+      type: 'string',
+      required: true
+    }
+  ]
+})
+
+stoker.register({
   name: 'stoker-datapoint',
   compact: false,
   fields: [
@@ -96,6 +128,25 @@ stoker.register({
     {
       name: 'timestamp',
       type: 'date',
+      required: true
+    }
+  ]
+})
+
+stoker.register({
+  name: 'get-sessions-request',
+  compact: false,
+  fields: []
+})
+
+stoker.register({
+  name: 'get-sessions-response',
+  compact: false,
+  fields: [
+    {
+      name: 'sessions',
+      type: `@${NS}/session`,
+      array: true,
       required: true
     }
   ]
@@ -129,6 +180,16 @@ rpc.register({
   name: 'store-set',
   request: { name: `@${NS}/config-set-request` },
   response: { name: `@${NS}/config-set-response` }
+})
+
+rpc.register({
+  name: 'get-sessions',
+  request: {
+    name: `@${NS}/get-sessions-request`,
+  },
+  response: {
+    name: `@${NS}/get-sessions-response`
+  }
 })
 
 HRPCBuilder.toDisk(rpcBuilder, { esm: false })

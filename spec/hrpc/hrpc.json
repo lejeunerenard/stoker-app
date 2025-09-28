@@ -22,6 +22,17 @@
         "name": "@stoker-app/config-set-response"
       },
       "version": 1
+    },
+    {
+      "id": 2,
+      "name": "@stoker-app/get-sessions",
+      "request": {
+        "name": "@stoker-app/get-sessions-request"
+      },
+      "response": {
+        "name": "@stoker-app/get-sessions-response"
+      },
+      "version": 1
     }
   ]
 }
