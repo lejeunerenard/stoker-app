@@ -53,16 +53,14 @@ function stokerStore (state, emitter) {
     state.sessionID = id
     emitter.emit('chart:clear')
 
-    // axios.get(`http://${window.location.hostname ? window.location.hostname : 'localhost'}:${PORT}/data/${id}`)
-    //   .then((response) => {
-    //     const session = response.data
-    //     const data = session.data
-    //     for (let i = 0; i < data.length; i++) {
-    //       const datapoint = data[i]
-    //       const update = i === data.length - 1
-    //       emitter.emit('chart:render', datapoint, update)
-    //     }
-    //   })
+    const dataStream = state.rpc.sessionData({ sessionId: state.sessionID })
+    dataStream.on('data', ({ sensors }) => {
+      const dataset = sensors.reduce((p, n) => {
+        p[n.name] = { x: n.timestamp, y: n.tempCurrent }
+        return p
+      }, {})
+      emitter.emit('chart:render', dataset)
+    })
   })
 
   emitter.once('rpc:ready', async (rpc) => {

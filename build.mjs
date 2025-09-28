@@ -134,6 +134,53 @@ stoker.register({
 })
 
 stoker.register({
+  name: 'sensor-data',
+  compact: false,
+  fields: [
+    {
+      name: 'name',
+      type: 'string',
+      required: true
+    },
+    {
+      name: 'tempCurrent',
+      type: 'float32',
+      required: true
+    },
+    {
+      name: 'timestamp',
+      type: 'date',
+      required: true
+    }
+  ]
+})
+
+stoker.register({
+  name: 'session-data-request',
+  compact: false,
+  fields: [
+    {
+      name: 'sessionId',
+      type: `@${NS}/session-id`,
+      required: true
+    }
+  ]
+})
+
+stoker.register({
+  name: 'session-data-response',
+  compact: false,
+  fields: [
+    {
+      name: 'sensors',
+      type: `@${NS}/sensor-data`,
+      array: true,
+      required: true
+    }
+  ]
+})
+
+stoker.register({
   name: 'get-sessions-request',
   compact: false,
   fields: []
@@ -189,6 +236,18 @@ rpc.register({
   },
   response: {
     name: `@${NS}/get-sessions-response`
+  }
+})
+
+rpc.register({
+  name: 'session-data',
+  request: {
+    name: `@${NS}/session-data-request`,
+    stream: false
+  },
+  response: {
+    name: `@${NS}/session-data-response`,
+    stream: true
   }
 })
 

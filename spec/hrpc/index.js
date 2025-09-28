@@ -10,7 +10,9 @@ const methods = new Map([
   ['@stoker-app/store-set', 1],
   [1, '@stoker-app/store-set'],
   ['@stoker-app/get-sessions', 2],
-  [2, '@stoker-app/get-sessions']
+  [2, '@stoker-app/get-sessions'],
+  ['@stoker-app/session-data', 3],
+  [3, '@stoker-app/session-data']
 ])
 
 class HRPC {
@@ -20,12 +22,14 @@ class HRPC {
     this._requestEncodings = new Map([
       ['@stoker-app/store-get', getEncoding('@stoker-app/config-get-request')],
       ['@stoker-app/store-set', getEncoding('@stoker-app/config-set-request')],
-      ['@stoker-app/get-sessions', getEncoding('@stoker-app/get-sessions-request')]
+      ['@stoker-app/get-sessions', getEncoding('@stoker-app/get-sessions-request')],
+      ['@stoker-app/session-data', getEncoding('@stoker-app/session-data-request')]
     ])
     this._responseEncodings = new Map([
       ['@stoker-app/store-get', getEncoding('@stoker-app/config-get-response')],
       ['@stoker-app/store-set', getEncoding('@stoker-app/config-set-response')],
-      ['@stoker-app/get-sessions', getEncoding('@stoker-app/get-sessions-response')]
+      ['@stoker-app/get-sessions', getEncoding('@stoker-app/get-sessions-response')],
+      ['@stoker-app/session-data', getEncoding('@stoker-app/session-data-response')]
     ])
     this._rpc = new RPC(stream, async (req) => {
       const command = methods.get(req.command)
@@ -101,6 +105,10 @@ class HRPC {
     return this._call('@stoker-app/get-sessions', args)
   }
 
+  sessionData (args) {
+    return this._callSync('@stoker-app/session-data', args)
+  }
+
   onStoreGet (responseFn) {
     this._handlers['@stoker-app/store-get'] = responseFn
   }
@@ -113,6 +121,10 @@ class HRPC {
     this._handlers['@stoker-app/get-sessions'] = responseFn
   }
 
+  onSessionData (responseFn) {
+    this._handlers['@stoker-app/session-data'] = responseFn
+  }
+
   _requestIsStream (command) {
     return [
     ].includes(command)
@@ -120,6 +132,7 @@ class HRPC {
 
   _responseIsStream (command) {
     return [
+      '@stoker-app/session-data'
     ].includes(command)
   }
 

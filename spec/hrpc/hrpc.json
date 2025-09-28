@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "schema": [
     {
       "id": 0,
@@ -33,6 +33,19 @@
         "name": "@stoker-app/get-sessions-response"
       },
       "version": 1
+    },
+    {
+      "id": 3,
+      "name": "@stoker-app/session-data",
+      "request": {
+        "name": "@stoker-app/session-data-request",
+        "stream": false
+      },
+      "response": {
+        "name": "@stoker-app/session-data-response",
+        "stream": true
+      },
+      "version": 2
     }
   ]
 }

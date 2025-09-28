@@ -65,4 +65,18 @@ rpc.onGetSessions(async () => {
   return { sessions }
 })
 
+rpc.onSessionData((stream) => {
+  const { sessionId } = stream.data
+  console.log('Getting data for sessionId', sessionId)
+  stokerServer.on('data', (data) => {
+    const timestamp = new Date(data.timestamp)
+    const sensors = data.stoker.sensors.map((sensor) => ({
+      name: sensor.name,
+      tempCurrent: sensor.tc,
+      timestamp
+    }))
+    stream.write({ sensors })
+  })
+})
+
 console.log('Pearend started')
