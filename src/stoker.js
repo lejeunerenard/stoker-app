@@ -1,6 +1,5 @@
 const EventEmitter = require('events').EventEmitter
 const querystring = require('querystring')
-const axios = require('axios').default
 const http = require('http')
 
 class Stoker extends EventEmitter {
@@ -78,10 +77,9 @@ class Stoker extends EventEmitter {
       form['sw' + sensorId] = on ? blowerId : 'None'
     }
 
-    return axios.post(
-      'http://' + this.ip + '/stoker.Post_Handler',
-      querystring.stringify(form)
-    ).catch((e) => {
+    const url = 'http://' + this.ip + '/stoker.Post_Handler'
+    const request = http.request(url + '?' + querystring.stringify(form), { method: 'POST' })
+    request.on('error', (e) => {
       this.emit('error', e)
     })
   }
