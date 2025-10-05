@@ -2,11 +2,11 @@
   "name": "stoker-app",
   "version": "1.0.0",
   "description": "",
-  "main": "src/public/index.html",
   "pear": {
     "name": "stoker-app",
     "type": "desktop",
-    "gui": {}
+    "gui": {},
+    "pre": "pear-electron/pre"
   },
   "scripts": {
     "build": "node build.mjs",
@@ -47,6 +47,8 @@
     "hyperdb": "^4.16.1",
     "hyperschema": "^1.14.0",
     "mkdirp": "^1.0.4",
+    "pear-bridge": "^1.2.4",
+    "pear-electron": "^1.7.22",
     "ws": "^7.5.10"
   },
   "imports": {
