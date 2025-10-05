@@ -44,7 +44,7 @@ async function teardown () {
 worker.on('close', teardown)
 worker.on('end', teardown)
 
-rpc.onStoreGet(async ({ key }) => store.get(key))
+rpc.onStoreGet(async ({ key }) => ({ value: await store.get(key) }))
 
 rpc.onStoreSet(async ({ key, value }) => {
   const success = store.set(key, value)
