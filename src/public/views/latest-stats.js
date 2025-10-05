@@ -1,11 +1,11 @@
-const html = require('choo/html')
+import html from 'choo/html'
 
 function zeroPad (number) {
   const padding = number < 10 ? '0' : ''
   return padding + number
 }
 
-function renderLastest (state) {
+export function renderLatest (state) {
   const data = state.data
   const recentData = data[data.length - 1]
 
@@ -40,5 +40,3 @@ function renderLastest (state) {
   ${blowerEls}
 </table>`
 }
-
-module.exports = renderLastest

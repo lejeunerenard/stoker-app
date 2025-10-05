@@ -1,11 +1,11 @@
-const choo = require('choo')
-const devtools = require('choo-devtools')
-const mainView = require('./views/main')
-const pearStore = require('./stores/pear')
-const stokerStore = require('./stores/stoker')
-const chartStore = require('./stores/chart')
-const busStore = require('./stores/bus')
-const formStore = require('./stores/form-state')
+import choo from 'choo'
+import devtools from 'choo-devtools'
+import { mainView } from './views/main'
+import { pearStore } from './stores/pear'
+import { stokerStore } from './stores/stoker'
+import { chartStore } from './stores/chart'
+import { busStore } from './stores/bus'
+import { formStore } from './stores/form-state'
 
 const app = choo()
 app.use(devtools())

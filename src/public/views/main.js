@@ -1,8 +1,8 @@
-const html = require('choo/html')
-const { textField } = require('./components/fields')
-const renderLatest = require('./latest-stats')
+import html from 'choo/html'
+import { textField } from './components/fields'
+import { renderLatest } from './latest-stats'
 
-function mainView (state, emit) {
+export function mainView (state, emit) {
   const latestStats = renderLatest(state)
   const formState = state.formState
 
@@ -58,5 +58,3 @@ function mainView (state, emit) {
     emit('session:set', id)
   }
 }
-
-module.exports = mainView

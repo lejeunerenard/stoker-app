@@ -1,6 +1,6 @@
-const Chart = require('chart.js')
+import Chart from 'chart.js'
 
-function chartStore (_, emitter) {
+export function chartStore (_, emitter) {
   let chart = null
 
   function initChart () {
@@ -76,5 +76,3 @@ function chartStore (_, emitter) {
     }
   })
 }
-
-module.exports = chartStore

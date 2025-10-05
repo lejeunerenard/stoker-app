@@ -1,4 +1,4 @@
-function formStore (state, emitter) {
+export function formStore (state, emitter) {
   // Blank state
   state = Object.assign(state, {
     formState: {
@@ -16,5 +16,3 @@ function formStore (state, emitter) {
     }
   })
 }
-
-module.exports = formStore

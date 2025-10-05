@@ -1,4 +1,4 @@
-function busStore (state, emitter) {
+export function busStore (state, emitter) {
   function rpcReady (rpc, bus) {
     bus.on('store:get', async (key) => {
       const { value: res } = await rpc.storeGet({ key })
@@ -47,5 +47,3 @@ function busStore (state, emitter) {
 
   // getWSPort()
 }
-
-module.exports = busStore

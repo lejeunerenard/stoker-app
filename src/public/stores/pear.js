@@ -1,9 +1,9 @@
 /** @typedef {import('pear-interface')} */ /* global Pear */
-const FramedStream = require('framed-stream')
-const path = require('path')
-const HRPC = require('../../../spec/hrpc/index.js')
+import HRPC from '../../../spec/hrpc/index.js'
+import FramedStream from 'framed-stream'
+import path from 'path'
 
-function pearStore (state, emitter) {
+export function pearStore (state, emitter) {
   const link = Pear.key ? `${Pear.config.applink}/src/backend/index.mjs` : path.join(Pear.config.dir, 'src', 'backend', 'index.mjs')
   const worker = Pear.worker.run(link)
   const pipe = new FramedStream(worker)
@@ -11,5 +11,3 @@ function pearStore (state, emitter) {
 
   emitter.emit('rpc:ready', state.rpc)
 }
-
-module.exports = pearStore

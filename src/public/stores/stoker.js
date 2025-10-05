@@ -1,4 +1,4 @@
-function stokerStore (state, emitter) {
+export function stokerStore (state, emitter) {
   // Blank state
   state = Object.assign(state, {
     data: [],
@@ -72,5 +72,3 @@ function stokerStore (state, emitter) {
     emitter.emit(state.events.RENDER)
   })
 }
-
-module.exports = stokerStore
