@@ -30,13 +30,21 @@ class Stoker extends EventEmitter {
         { responseType: 'json' })
         .setTimeout(5 * 1000)
         .on('response', (res) => {
-          // TODO Handle error HTTP status codes
+          // TODO Handle real error HTTP status codes from stoker
+          // Currently the error handling is mock-rocks-bbq-stokerii specific
           let json = ''
           res
             .on('data', (chunk) => {
               json += chunk.toString()
             })
-            .on('end', () => resolve(JSON.parse(json)))
+            .on('end', () => {
+              const data = JSON.parse(json)
+              if (res.statusCode !== 200) {
+                reject(data.error)
+              } else {
+                resolve(data)
+              }
+            })
         })
         .on('error', (e) => reject(e))
         .end()
