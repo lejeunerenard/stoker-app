@@ -10,12 +10,11 @@
   },
   "scripts": {
     "build": "node build.mjs",
-    "update-env": "echo '{ \"code_version\": \"'`git rev-parse HEAD`'\"}' > src/env.json",
     "lint": "eslint src/**/*.js",
     "test": "npm run lint; tape tests/**.js tests/**.mjs",
-    "start": "npm run update-env; cross-env ELECTRON_ENV=development electron-forge start",
-    "package": "npm run update-env; electron-forge package",
-    "make": "npm run update-env; electron-forge make"
+    "start": "pear run -d .",
+    "package": "echo 'unimplemented'",
+    "make": "echo 'unimplemented'"
   },
   "keywords": [],
   "author": "Sean Zellmer <sean@lejeunerenard.com> (http://lejeunerenard.com/)",

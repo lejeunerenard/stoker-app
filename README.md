@@ -4,7 +4,7 @@ An app for tracking and controlling a stoker for grills & smokers.
 
 ## Development Setup
 
-Need Node.js & `npm` installed.
+Need Node.js, `npm` & [`pear`](https://docs.pears.com/guides/getting-started) installed.
 
 ### Setup
 
@@ -21,7 +21,7 @@ npm run build
 ### Running
 
 ```console
-npm start
+pear run -d .
 ```
 
 ### Testing
