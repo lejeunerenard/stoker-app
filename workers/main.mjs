@@ -70,25 +70,8 @@ const store = new Store({
   path: path.join(updaterConfig.dir, 'stoker-ii')
 })
 
-const stokerIP = await store.get('stokerIP')
-if (stokerIP) {
-  stokerServer.emit('stoker:setip', stokerIP)
-} else {
-  stokerServer.emit('stoker:setip', STOKER_IP)
-  store.set('stokerIP', STOKER_IP)
-}
-store.onDidChange('stokerIP', (newIP, oldIP) => {
-  if (newIP !== oldIP) {
-    stokerServer.emit('stoker:setip', newIP)
-  }
-})
-stokerServer.on('stoker:setip', (ip) => {
-  store.set('stokerIP', ip)
-})
-stokerServer.on('error', (e) => {
-  console.log('error', e)
-})
-
+// Register handlers synchronously: the renderer is already connected over the
+// bridge and can send (e.g. `store:get`) before any await resumes this module
 rpc.onStoreGet(async ({ key }) => {
   return { value: await store.get(key) }
 })
@@ -124,6 +107,25 @@ rpc.onSessionData((stream) => {
     }))
     stream.write({ sensors })
   })
+})
+
+const stokerIP = await store.get('stokerIP')
+if (stokerIP) {
+  stokerServer.emit('stoker:setip', stokerIP)
+} else {
+  stokerServer.emit('stoker:setip', STOKER_IP)
+  store.set('stokerIP', STOKER_IP)
+}
+store.onDidChange('stokerIP', (newIP, oldIP) => {
+  if (newIP !== oldIP) {
+    stokerServer.emit('stoker:setip', newIP)
+  }
+})
+stokerServer.on('stoker:setip', (ip) => {
+  store.set('stokerIP', ip)
+})
+stokerServer.on('error', (e) => {
+  console.log('error', e)
 })
 
 async function teardown () {
