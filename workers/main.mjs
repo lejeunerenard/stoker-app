@@ -11,7 +11,7 @@ import goodbye from 'graceful-goodbye'
 import storage from 'bare-storage'
 import StokerServer from './stoker-server.js'
 import { Store } from './store/index.mjs'
-import HRPC from '../../spec/hrpc/index.js'
+import HRPC from '../spec/hrpc/index.js'
 
 console.log('Starting worker')
 
