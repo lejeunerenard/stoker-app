@@ -1,7 +1,7 @@
 import choo from 'choo'
 import devtools from 'choo-devtools'
 import { mainView } from './views/main'
-import { pearStore } from './stores/pear'
+import { bridgeStore } from './stores/bridge'
 import { stokerStore } from './stores/stoker'
 import { chartStore } from './stores/chart'
 import { busStore } from './stores/bus'
@@ -13,6 +13,6 @@ app.use(busStore)
 app.use(stokerStore)
 app.use(chartStore)
 app.use(formStore)
-app.use(pearStore)
+app.use(bridgeStore)
 app.route('*', mainView)
 app.mount('#app')

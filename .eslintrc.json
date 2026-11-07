@@ -13,6 +13,7 @@
     "rules": {
     },
     "ignorePatterns": [
-      "src/public/bundle.js"
+      "src/public/bundle.js",
+      "renderer/views/components/fields.js"
     ]
 }

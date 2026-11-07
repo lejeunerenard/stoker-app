@@ -12,7 +12,11 @@ const methods = new Map([
   ['@stoker-app/get-sessions', 2],
   [2, '@stoker-app/get-sessions'],
   ['@stoker-app/session-data', 3],
-  [3, '@stoker-app/session-data']
+  [3, '@stoker-app/session-data'],
+  ['@stoker-app/worker-event', 4],
+  [4, '@stoker-app/worker-event'],
+  ['@stoker-app/apply-update', 5],
+  [5, '@stoker-app/apply-update']
 ])
 
 class HRPC {
@@ -23,13 +27,16 @@ class HRPC {
       ['@stoker-app/store-get', getEncoding('@stoker-app/config-get-request')],
       ['@stoker-app/store-set', getEncoding('@stoker-app/config-set-request')],
       ['@stoker-app/get-sessions', getEncoding('@stoker-app/get-sessions-request')],
-      ['@stoker-app/session-data', getEncoding('@stoker-app/session-data-request')]
+      ['@stoker-app/session-data', getEncoding('@stoker-app/session-data-request')],
+      ['@stoker-app/worker-event', getEncoding('@stoker-app/worker-event-request')],
+      ['@stoker-app/apply-update', getEncoding('@stoker-app/apply-update-request')]
     ])
     this._responseEncodings = new Map([
       ['@stoker-app/store-get', getEncoding('@stoker-app/config-get-response')],
       ['@stoker-app/store-set', getEncoding('@stoker-app/config-set-response')],
       ['@stoker-app/get-sessions', getEncoding('@stoker-app/get-sessions-response')],
-      ['@stoker-app/session-data', getEncoding('@stoker-app/session-data-response')]
+      ['@stoker-app/session-data', getEncoding('@stoker-app/session-data-response')],
+      ['@stoker-app/apply-update', getEncoding('@stoker-app/apply-update-response')]
     ])
     this._rpc = new RPC(stream, async (req) => {
       const command = methods.get(req.command)
@@ -109,6 +116,14 @@ class HRPC {
     return this._callSync('@stoker-app/session-data', args)
   }
 
+  workerEvent (args) {
+    return this._callSync('@stoker-app/worker-event', args)
+  }
+
+  async applyUpdate (args) {
+    return this._call('@stoker-app/apply-update', args)
+  }
+
   onStoreGet (responseFn) {
     this._handlers['@stoker-app/store-get'] = responseFn
   }
@@ -125,6 +140,14 @@ class HRPC {
     this._handlers['@stoker-app/session-data'] = responseFn
   }
 
+  onWorkerEvent (responseFn) {
+    this._handlers['@stoker-app/worker-event'] = responseFn
+  }
+
+  onApplyUpdate (responseFn) {
+    this._handlers['@stoker-app/apply-update'] = responseFn
+  }
+
   _requestIsStream (command) {
     return [
     ].includes(command)
@@ -138,6 +161,7 @@ class HRPC {
 
   _requestIsSend (command) {
     return [
+      '@stoker-app/worker-event'
     ].includes(command)
   }
 }

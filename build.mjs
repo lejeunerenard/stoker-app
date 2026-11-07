@@ -199,6 +199,40 @@ stoker.register({
   ]
 })
 
+stoker.register({
+  name: 'worker-event-request',
+  compact: true,
+  fields: [
+    {
+      name: 'name',
+      type: 'string',
+      required: true
+    }
+  ]
+})
+
+stoker.register({
+  name: 'apply-update-request',
+  compact: true,
+  fields: []
+})
+
+stoker.register({
+  name: 'apply-update-response',
+  compact: true,
+  fields: [
+    {
+      name: 'ok',
+      type: 'bool',
+      required: true
+    },
+    {
+      name: 'error',
+      type: 'string'
+    }
+  ]
+})
+
 Hyperschema.toDisk(schema, { esm: true })
 
 // HyperDB
@@ -248,6 +282,24 @@ rpc.register({
   response: {
     name: `@${NS}/session-data-response`,
     stream: true
+  }
+})
+
+rpc.register({
+  name: 'worker-event',
+  request: {
+    name: `@${NS}/worker-event-request`,
+    send: true
+  }
+})
+
+rpc.register({
+  name: 'apply-update',
+  request: {
+    name: `@${NS}/apply-update-request`
+  },
+  response: {
+    name: `@${NS}/apply-update-response`
   }
 })
 

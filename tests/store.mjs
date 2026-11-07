@@ -1,6 +1,6 @@
 import test from 'tape'
 import tmp from 'test-tmp'
-import { Store } from '../src/store/index.mjs'
+import { Store } from '../workers/store/index.mjs'
 
 test('store - basic', async (t) => {
   const store = new Store({

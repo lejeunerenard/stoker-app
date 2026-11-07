@@ -2,7 +2,7 @@ const test = require('tape')
 const { mkdtemp, access, rm } = require('fs/promises')
 const { join } = require('path')
 const { tmpdir } = require('os')
-const { createSession, saveSession } = require('../src/sessions')
+const { createSession, saveSession } = require('../workers/sessions')
 
 test('createSession', (t) => {
   t.test('default name', (t) => {

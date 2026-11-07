@@ -5,9 +5,14 @@ import { renderLatest } from './latest-stats'
 export function mainView (state, emit) {
   const latestStats = renderLatest(state)
   const formState = state.formState
+  const updateBanner = state.updateReady
+    ? html`<div id="update">Update ready <button onclick=${onUpdateBtn}>Apply</button></div>`
+    : ''
 
   return html`
 <div>
+  <div class="version">v${state.version}</div>
+  ${updateBanner}
   <div class="errors">
     ${state.errors.map((error) => html`<div class="error">${error}</div>`)}
   </div>
@@ -56,5 +61,15 @@ export function mainView (state, emit) {
 
     const id = Number(e.target.value)
     emit('session:set', id)
+  }
+
+  async function onUpdateBtn () {
+    try {
+      const res = await window.bridge.rpc.applyUpdate({})
+      if (!res.ok) throw new Error(res.error || 'applyUpdate failed')
+      await window.bridge.appAfterUpdate()
+    } catch (e) {
+      console.error('update failed: ' + e.message)
+    }
   }
 }

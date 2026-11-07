@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title></title>
+  <title>Stoker</title>
   <style>
     html {
       background: #fff;
@@ -34,15 +34,21 @@
       top: 0;
     }
 
-    pear-ctrl[data-platform=darwin] {
-      margin-top: 18px;
-      margin-left: 12px;
+    #update {
+      position: fixed;
+      bottom: 12px;
+      left: 12px;
+      padding: 6px 10px;
+      background: #236;
+      color: #fff;
+      border-radius: 6px;
+      z-index: 3;
     }
   </style>
-  <script type="module" src="./src/public/app.js"></script>
+  <script type="module" src="./bundle.js"></script>
 </head>
 <body>
-  <div id="bar"><pear-ctrl></pear-ctrl></div>
+  <div id="bar"></div>
   <h1>Stoker</h1>
   <canvas></canvas>
   <div id="app"></div>

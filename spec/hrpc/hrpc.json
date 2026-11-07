@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 4,
   "schema": [
     {
       "id": 0,
@@ -46,6 +46,26 @@
         "stream": true
       },
       "version": 2
+    },
+    {
+      "id": 4,
+      "name": "@stoker-app/worker-event",
+      "request": {
+        "name": "@stoker-app/worker-event-request",
+        "send": true
+      },
+      "version": 3
+    },
+    {
+      "id": 5,
+      "name": "@stoker-app/apply-update",
+      "request": {
+        "name": "@stoker-app/apply-update-request"
+      },
+      "response": {
+        "name": "@stoker-app/apply-update-response"
+      },
+      "version": 4
     }
   ]
 }

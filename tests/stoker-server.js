@@ -1,5 +1,5 @@
 const test = require('tape')
-const StokerServer = require('../src/stoker-server')
+const StokerServer = require('../workers/stoker-server')
 
 test('Stoker server', (t) => {
   t.test('constructor', (t) => {
