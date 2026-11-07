@@ -2,7 +2,7 @@
   "name": "stoker-app",
   "productName": "StokerApp",
   "version": "1.0.0",
-  "upgrade": "pear://purrfb44g5c7jvawkqd32ixkt6jpzkxx4dqcf5oq6jzatvu7f524",
+  "upgrade": "pear://o6ik83o3mr5yccmb96uunfqg9z1t5uccnukmrfbhokjwsrkkazky",
   "description": "An app for tracking and controlling a stoker for grills & smokers.",
   "license": "MIT",
   "author": "Sean Zellmer <sean@lejeunerenard.com> (http://lejeunerenard.com/)",

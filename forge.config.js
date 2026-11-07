@@ -29,7 +29,7 @@ module.exports = {
       if (process.env.UPGRADE_KEY) {
         packageJson.upgrade = process.env.UPGRADE_KEY
       }
-      if (!/^pear:\/\/[a-z2-7]{52}([a-z2-7]*|(\.[a-z0-9]+){1,2})$/.test(packageJson.upgrade || '')) {
+      if (!/^pear:\/\/[a-uw-z2-7]{52}([a-z0-9]{1,13}|(\.[a-z0-9]+){1,2})$/.test(packageJson.upgrade || '')) {
         throw new Error('package.json#upgrade is not a pear link. Run `pear touch` and set the key')
       }
       return packageJson
