@@ -3,6 +3,7 @@
 // later when production releases are wanted (MIGRATION-PLAN phase 4d).
 const fs = require('fs')
 const path = require('path')
+const plink = require('pear-link')
 
 const pkg = require('./package.json')
 const appName = pkg.productName ?? pkg.name
@@ -29,7 +30,9 @@ module.exports = {
       if (process.env.UPGRADE_KEY) {
         packageJson.upgrade = process.env.UPGRADE_KEY
       }
-      if (!/^pear:\/\/[a-uw-z2-7]{52}([a-z0-9]{1,13}|(\.[a-z0-9]+){1,2})$/.test(packageJson.upgrade || '')) {
+      try {
+        plink.parse(packageJson.upgrade)
+      } catch {
         throw new Error('package.json#upgrade is not a pear link. Run `pear touch` and set the key')
       }
       return packageJson
