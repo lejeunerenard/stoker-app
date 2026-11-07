@@ -5,7 +5,7 @@
 // surface (the generated `spec/hrpc` client + a stream-like adapter).
 const { contextBridge, ipcRenderer } = require('electron')
 const EventEmitter = require('events')
-const HRPC = require('../../spec/hrpc/index.js')
+const HRPC = require('../spec/hrpc/index.js')
 
 const mainWorkerSpecifier = '/workers/main.mjs'
 
