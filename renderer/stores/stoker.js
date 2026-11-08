@@ -53,8 +53,9 @@ export function stokerStore (state, emitter) {
     state.sessionID = id
     emitter.emit('chart:clear')
 
-    const dataStream = state.rpc.sessionData({ sessionId: state.sessionID })
-    dataStream.on('data', ({ sensors }) => {
+    // The bridge exposes sessionData as (args, onData): the callback crosses
+    // as a wrapped argument (returned stream objects cannot carry functions)
+    state.rpc.sessionData({ sessionId: state.sessionID }, ({ sensors }) => {
       const dataset = sensors.reduce((p, n) => {
         p[n.name] = { x: n.timestamp, y: n.tempCurrent }
         return p

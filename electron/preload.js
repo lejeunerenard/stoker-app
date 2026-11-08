@@ -53,13 +53,11 @@ contextBridge.exposeInMainWorld('bridge', {
       workerEventListeners.push(listener)
       return () => workerEventListeners.splice(workerEventListeners.indexOf(listener), 1)
     },
-    sessionData: (args) => {
+    // Pass the data callback in as an argument: functions returned as object
+    // properties do not cross the isolation boundary (structured clone error)
+    sessionData: (args, onData) => {
       const stream = rpc.sessionData(args)
-      return {
-        on: (evt, fn) => stream.on(evt, fn),
-        write: (data) => stream.write(data),
-        end: () => stream.end()
-      }
+      if (onData) stream.on('data', onData)
     }
   },
   onWorkerStdout: (specifier, listener) => {

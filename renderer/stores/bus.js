@@ -9,11 +9,13 @@ export function busStore (state, emitter) {
     })
 
     // Now connection is open, get info
-    bus.emit('store:get', 'stokerIP')
   }
 
-  emitter.on('rpc:ready', (rpc) => {
+  emitter.once('rpc:ready', (rpc) => {
     rpcReady(rpc, emitter)
+    // kick off after listeners are registered, otherwise the first emit has
+    // nobody subscribed yet
+    emitter.emit('store:get', 'stokerIP')
   })
 
   // function setupWS (port, bus) {

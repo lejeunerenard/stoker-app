@@ -2,7 +2,9 @@
 // renderer/bundle.js, which is the single module script renderer/index.html
 // loads. Bare imports are resolved via node_modules + the package.json#imports
 // aliases, so the sandboxed renderer page stays browser-only.
-import esbuild from 'esbuild'
+// Uses the WASM build of esbuild: platform-neutral, so a shared node_modules
+// dir (e.g. macOS host + Linux container) can't get a wrong-arch native binary.
+import esbuild from 'esbuild-wasm'
 import { readFile } from 'node:fs/promises'
 
 const pkg = JSON.parse(await readFile(new URL('./package.json', import.meta.url)))
