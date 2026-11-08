@@ -121,6 +121,12 @@ on a real desktop.
   contextIsolation: true, nodeIntegration: false` — the main world stays
   browser-only (gotcha 2 holds; Chromium `sandbox: true` would forbid preload
   `require`).
+- **`sessionData` crossing**: Electron's context serializer can auto-wrap
+  functions passed as *arguments*, but objects with function properties
+  returned across worlds throw "could not be cloned". So `bridge.rpc.sessionData(args,
+  onData)` takes the callback as an argument (stores/stoker.js adapted
+  accordingly), instead of returning a stream-like wrapper. `busStore` also
+  kicks off `store:get` only after its listeners are registered.
 - **Renderer bundling**: the sandboxed page cannot bare-import npm libs under
   plain Electron (that was a Pear-platform feature), so `renderbuild.mjs`
   (esbuild) bundles `renderer/app.js` → `renderer/bundle.js`, which
