@@ -2,7 +2,9 @@ export function formStore (state, emitter) {
   // Blank state
   state = Object.assign(state, {
     formState: {
-      stokerIP: null
+      stokerIP: null,
+      // For the create-session form of the session management tab
+      sessionName: ''
     }
   })
 

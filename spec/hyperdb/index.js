@@ -59,8 +59,66 @@ const collection0 = {
   indexes: []
 }
 
+// '@stoker-app/session' collection key
+const collection1_key = new IndexEncoder([
+  IndexEncoder.BUFFER
+], { prefix: 1 })
+
+function collection1_indexify (record) {
+  const a = record.id?.key
+  return a === undefined ? [] : [a]
+}
+
+// '@stoker-app/session' value encoding
+const collection1_enc = getEncoding('@stoker-app/session/hyperdb#1')
+
+// '@stoker-app/session' reconstruction function
+function collection1_reconstruct (version, keyBuf, valueBuf) {
+  const key = collection1_key.decode(keyBuf)
+  setVersion(version)
+  const record = c.decode(collection1_enc, valueBuf)
+  record.id.key = key[0]
+  return record
+}
+// '@stoker-app/session' key reconstruction function
+function collection1_reconstruct_key (keyBuf) {
+  const key = collection1_key.decode(keyBuf)
+  return {
+    id: {
+      key: key[0]
+    }
+  }
+}
+
+// '@stoker-app/session'
+const collection1 = {
+  name: '@stoker-app/session',
+  id: 1,
+  encodeKey (record) {
+    const key = [record.id.key]
+    return collection1_key.encode(key)
+  },
+  encodeKeyRange ({ gt, lt, gte, lte } = {}) {
+    return collection1_key.encodeRange({
+      gt: gt ? collection1_indexify(gt) : null,
+      lt: lt ? collection1_indexify(lt) : null,
+      gte: gte ? collection1_indexify(gte) : null,
+      lte: lte ? collection1_indexify(lte) : null
+    })
+  },
+  encodeValue (version, record) {
+    setVersion(version)
+    return c.encode(collection1_enc, record)
+  },
+  trigger: null,
+  reconstruct: collection1_reconstruct,
+  reconstructKey: collection1_reconstruct_key,
+  indexes: []
+}
+
 const collections = [
-  collection0
+  collection0,
+  collection1
 ]
 
 const indexes = [
@@ -71,6 +129,7 @@ module.exports = { version, collections, indexes, resolveCollection, resolveInde
 function resolveCollection (name) {
   switch (name) {
     case '@stoker-app/config': return collection0
+    case '@stoker-app/session': return collection1
     default: return null
   }
 }

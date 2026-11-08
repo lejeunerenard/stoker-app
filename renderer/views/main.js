@@ -1,5 +1,6 @@
 import html from 'choo/html'
 import { textField } from './components/fields'
+import { menuView } from './components/menu'
 import { renderLatest } from './latest-stats'
 
 export function mainView (state, emit) {
@@ -11,6 +12,7 @@ export function mainView (state, emit) {
 
   return html`
 <div>
+  ${menuView(state, emit)}
   <div class="version">v${state.version}</div>
   ${updateBanner}
   <div class="errors">
@@ -20,9 +22,10 @@ export function mainView (state, emit) {
       <label for="session">Session</label>
       <select id="session" onchange=${onChangeSession}>
         ${state.sessions.map((session, i) =>
-          html`<option value="${i}" ${i === state.sessionID ? 'selected' : ''}>${session.name}</option>`
+          html`<option value="${i}" ${state.sessions[i].id === state.sessionID ? 'selected' : ''}>${session.name}</option>`
           )}
       </select>
+      <button class="pa4 black-80" onclick=${onAddSession}>Add session</button>
       <form class="pa4 black-80" onsubmit=${onSubmit} action="stoker-settings">
         <article class="cf">
           <div class="fl w-100 w-50-ns pa2">
@@ -51,7 +54,11 @@ export function mainView (state, emit) {
   function onSubmit (e) {
     e.preventDefault()
     const form = this
-    const basePath = window.location.href.replace(/\/[^/]*.html/, '/')
+    // `form.action` is the base-url-resolved action (no hash), so the base
+    // path must be derived from the hash-stripped pathname — the hash route
+    // (`#session-management`) must not leak into the computed action
+    const location = window.location.href.replace(/#.*$/, '')
+    const basePath = location.replace(/\/[^/]*$/, '/')
     const action = form.action.replace(basePath, '')
     emit(`form-submit:${action}`, new FormData(form))
   }
@@ -59,8 +66,14 @@ export function mainView (state, emit) {
   function onChangeSession (e) {
     e.preventDefault()
 
-    const id = Number(e.target.value)
-    emit('session:set', id)
+    const session = state.sessions[Number(e.target.value)]
+    if (session) emit('session:set', session)
+  }
+
+  // Opens the session management tab (hash route), where the create session
+  // form lives
+  function onAddSession () {
+    window.location.hash = 'session-management'
   }
 
   async function onUpdateBtn () {

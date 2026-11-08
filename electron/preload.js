@@ -47,6 +47,9 @@ contextBridge.exposeInMainWorld('bridge', {
     storeGet: (args) => rpc.storeGet(args),
     storeSet: (args) => rpc.storeSet(args),
     getSessions: (args) => rpc.getSessions(args),
+    createSession: (args) => rpc.createSession(args),
+    editSession: (args) => rpc.editSession(args),
+    deleteSession: (args) => rpc.deleteSession(args),
     workerEvent: (args) => rpc.workerEvent(args),
     applyUpdate: (args) => rpc.applyUpdate(args),
     onWorkerEvent: (listener) => {

@@ -63,13 +63,4 @@ export function stokerStore (state, emitter) {
       emitter.emit('chart:render', dataset)
     })
   })
-
-  emitter.once('rpc:ready', async (rpc) => {
-    const { sessions } = await rpc.getSessions()
-    state.sessions = sessions
-
-    const latest = state.sessions[state.sessions.length - 1]
-    emitter.emit(state.events.SESSION_SET, latest)
-    emitter.emit(state.events.RENDER)
-  })
 }

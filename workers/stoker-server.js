@@ -1,7 +1,4 @@
 const Stoker = require('./stoker')
-const { loadSessions, createSession, saveSession } = require('./sessions')
-const path = require('path')
-const { mkdir } = require('fs')
 const { EventEmitter } = require('events')
 
 class StokerServer {
@@ -10,19 +7,14 @@ class StokerServer {
     this.wss = null
     this.pollPeriod = 5 * 1000
 
-    let sessionDir = path.join('.', 'sessions')
-    let sessions = []
-    // Start a new session
-    const currentSession = createSession()
-    sessions.push(currentSession)
-
     const app = new EventEmitter() // express()
     this.app = app
 
-    this.on('data', (data) => {
-      currentSession.data.push(data)
-      saveSession(currentSession, sessionDir)
-    })
+    // // Adding data to sessions needs to be implemented, might need to use the store directly
+    // this.on('data', (data) => {
+    //   currentSession.data.push(data)
+    //   saveSession(currentSession, sessionDir)
+    // })
 
     const setupStoker = (ip) => {
       if (this.stoker) this.stoker.close()
@@ -47,12 +39,6 @@ class StokerServer {
     }
 
     app.on('stoker:setip', setupStoker)
-    app.on('sessions:set-dir', (dir) => {
-      sessionDir = dir
-      mkdir(sessionDir, { recursive: true }, () => {
-        sessions = sessions.concat(loadSessions(sessionDir))
-      })
-    })
 
     // TODO Ensure the initial data request still works w/ the HRPC endpoint
     // app.get('/data/:id', (req, res) => {

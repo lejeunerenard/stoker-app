@@ -65,7 +65,6 @@ rpc.onApplyUpdate(async () => {
 })
 
 const stokerServer = new StokerServer()
-stokerServer.emit('sessions:set-dir', path.join(updaterConfig.dir, 'stoker-sessions'))
 const store = new Store({
   path: path.join(updaterConfig.dir, 'stoker-ii')
 })
@@ -82,17 +81,21 @@ rpc.onStoreSet(async ({ key, value }) => {
 })
 
 rpc.onGetSessions(async () => {
-  const sessions = [
-    {
-      id: {
-        createdOn: new Date(),
-        key: Buffer.from('deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef', 'hex')
-      },
-      name: 'Test Session'
-    }
-  ]
+  const sessions = await store.getSessions()
 
   return { sessions }
+})
+
+rpc.onCreateSession((fields) => {
+  return store.createSession(fields)
+})
+
+rpc.onEditSession(({ sessionId, name }) => {
+  return store.updateSession(sessionId, name)
+})
+
+rpc.onDeleteSession(async ({ sessionId }) => {
+  return { success: await store.deleteSession(sessionId) }
 })
 
 rpc.onSessionData((stream) => {

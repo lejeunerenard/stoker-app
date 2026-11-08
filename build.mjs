@@ -200,6 +200,59 @@ stoker.register({
 })
 
 stoker.register({
+  name: 'session-create-request',
+  compact: false,
+  fields: [
+    {
+      name: 'name',
+      type: 'string',
+      required: true
+    }
+  ]
+})
+
+stoker.register({
+  name: 'session-delete-request',
+  compact: false,
+  fields: [
+    {
+      name: 'sessionId',
+      type: `@${NS}/session-id`,
+      required: true
+    }
+  ]
+})
+
+stoker.register({
+  name: 'session-delete-response',
+  compact: true,
+  fields: [
+    {
+      name: 'success',
+      type: 'bool',
+      required: true
+    }
+  ]
+})
+
+stoker.register({
+  name: 'session-edit-request',
+  compact: false,
+  fields: [
+    {
+      name: 'sessionId',
+      type: `@${NS}/session-id`,
+      required: true
+    },
+    {
+      name: 'name',
+      type: 'string',
+      required: true
+    }
+  ]
+})
+
+stoker.register({
   name: 'worker-event-request',
   compact: true,
   fields: [
@@ -245,6 +298,14 @@ stokerDb.collections.register({
   key: ['key']
 })
 
+// `id.key` is a random 32 byte key per session, the created date lives in
+// `id.createdOn` and is set automatically when the session is created
+stokerDb.collections.register({
+  name: 'session',
+  schema: `@${NS}/session`,
+  key: ['id.key']
+})
+
 Hyperdb.toDisk(db, { esm: false })
 
 // HRPC
@@ -283,6 +344,24 @@ rpc.register({
     name: `@${NS}/session-data-response`,
     stream: true
   }
+})
+
+rpc.register({
+  name: 'create-session',
+  request: { name: `@${NS}/session-create-request` },
+  response: { name: `@${NS}/session` }
+})
+
+rpc.register({
+  name: 'delete-session',
+  request: { name: `@${NS}/session-delete-request` },
+  response: { name: `@${NS}/session-delete-response` }
+})
+
+rpc.register({
+  name: 'edit-session',
+  request: { name: `@${NS}/session-edit-request` },
+  response: { name: `@${NS}/session` }
 })
 
 rpc.register({

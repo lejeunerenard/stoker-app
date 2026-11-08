@@ -16,7 +16,13 @@ const methods = new Map([
   ['@stoker-app/worker-event', 4],
   [4, '@stoker-app/worker-event'],
   ['@stoker-app/apply-update', 5],
-  [5, '@stoker-app/apply-update']
+  [5, '@stoker-app/apply-update'],
+  ['@stoker-app/create-session', 6],
+  [6, '@stoker-app/create-session'],
+  ['@stoker-app/delete-session', 7],
+  [7, '@stoker-app/delete-session'],
+  ['@stoker-app/edit-session', 8],
+  [8, '@stoker-app/edit-session']
 ])
 
 class HRPC {
@@ -29,14 +35,20 @@ class HRPC {
       ['@stoker-app/get-sessions', getEncoding('@stoker-app/get-sessions-request')],
       ['@stoker-app/session-data', getEncoding('@stoker-app/session-data-request')],
       ['@stoker-app/worker-event', getEncoding('@stoker-app/worker-event-request')],
-      ['@stoker-app/apply-update', getEncoding('@stoker-app/apply-update-request')]
+      ['@stoker-app/apply-update', getEncoding('@stoker-app/apply-update-request')],
+      ['@stoker-app/create-session', getEncoding('@stoker-app/session-create-request')],
+      ['@stoker-app/delete-session', getEncoding('@stoker-app/session-delete-request')],
+      ['@stoker-app/edit-session', getEncoding('@stoker-app/session-edit-request')]
     ])
     this._responseEncodings = new Map([
       ['@stoker-app/store-get', getEncoding('@stoker-app/config-get-response')],
       ['@stoker-app/store-set', getEncoding('@stoker-app/config-set-response')],
       ['@stoker-app/get-sessions', getEncoding('@stoker-app/get-sessions-response')],
       ['@stoker-app/session-data', getEncoding('@stoker-app/session-data-response')],
-      ['@stoker-app/apply-update', getEncoding('@stoker-app/apply-update-response')]
+      ['@stoker-app/apply-update', getEncoding('@stoker-app/apply-update-response')],
+      ['@stoker-app/create-session', getEncoding('@stoker-app/session')],
+      ['@stoker-app/delete-session', getEncoding('@stoker-app/session-delete-response')],
+      ['@stoker-app/edit-session', getEncoding('@stoker-app/session')]
     ])
     this._rpc = new RPC(stream, async (req) => {
       const command = methods.get(req.command)
@@ -124,6 +136,18 @@ class HRPC {
     return this._call('@stoker-app/apply-update', args)
   }
 
+  async createSession (args) {
+    return this._call('@stoker-app/create-session', args)
+  }
+
+  async deleteSession (args) {
+    return this._call('@stoker-app/delete-session', args)
+  }
+
+  async editSession (args) {
+    return this._call('@stoker-app/edit-session', args)
+  }
+
   onStoreGet (responseFn) {
     this._handlers['@stoker-app/store-get'] = responseFn
   }
@@ -146,6 +170,18 @@ class HRPC {
 
   onApplyUpdate (responseFn) {
     this._handlers['@stoker-app/apply-update'] = responseFn
+  }
+
+  onCreateSession (responseFn) {
+    this._handlers['@stoker-app/create-session'] = responseFn
+  }
+
+  onDeleteSession (responseFn) {
+    this._handlers['@stoker-app/delete-session'] = responseFn
+  }
+
+  onEditSession (responseFn) {
+    this._handlers['@stoker-app/edit-session'] = responseFn
   }
 
   _requestIsStream (command) {

@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 6,
   "schema": [
     {
       "name": "config",
@@ -398,6 +398,68 @@
           "name": "error",
           "type": "string",
           "version": 4
+        }
+      ]
+    },
+    {
+      "name": "session-create-request",
+      "namespace": "stoker-app",
+      "compact": false,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "name",
+          "required": true,
+          "type": "string",
+          "version": 5
+        }
+      ]
+    },
+    {
+      "name": "session-delete-request",
+      "namespace": "stoker-app",
+      "compact": false,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "sessionId",
+          "required": true,
+          "type": "@stoker-app/session-id",
+          "version": 5
+        }
+      ]
+    },
+    {
+      "name": "session-delete-response",
+      "namespace": "stoker-app",
+      "compact": true,
+      "flagsPosition": 0,
+      "fields": [
+        {
+          "name": "success",
+          "required": false,
+          "type": "bool",
+          "version": 5
+        }
+      ]
+    },
+    {
+      "name": "session-edit-request",
+      "namespace": "stoker-app",
+      "compact": false,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "sessionId",
+          "required": true,
+          "type": "@stoker-app/session-id",
+          "version": 6
+        },
+        {
+          "name": "name",
+          "required": true,
+          "type": "string",
+          "version": 6
         }
       ]
     }
