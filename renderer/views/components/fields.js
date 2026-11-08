@@ -1,4 +1,4 @@
-const html = require('choo/html')
+import html from 'choo/html'
 
 const defaultInputClasses = 'input-reset ba b--black-20 bg-transparent pa2 mb2 db w-100 border-box'
 
@@ -31,7 +31,7 @@ function labelEl (name, text, attributes) {
   return html`<label for="${name}" ${combinedAttributes}>${text}</label>`
 }
 
-function inputField (name, label, value, attributes, type = 'text', opts) {
+export function inputField (name, label, value, attributes, type = 'text', opts) {
   const combinedAttributes = Object.assign({}, {
     class: defaultInputClasses
   }, attributes)
@@ -72,7 +72,7 @@ function selectField (name, label, options, attributes, selected = [], opts) {
   `, opts)
 }
 
-function textField (name, label, value, attributes) {
+export function textField (name, label, value, attributes) {
   return inputField(name, label, value, attributes, 'text')
 }
 
@@ -122,9 +122,4 @@ function hideable (el, hide) {
   if (hide) el.style.display = 'none'
 
   return el
-}
-
-module.exports = {
-  inputField,
-  textField
 }

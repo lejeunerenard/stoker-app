@@ -1,5 +1,5 @@
 const test = require('tape')
-const Stoker = require('../src/stoker')
+const Stoker = require('../workers/stoker')
 const MockStoker = require('./helpers/mock-stoker')
 const { setTimeout } = require('timers/promises')
 

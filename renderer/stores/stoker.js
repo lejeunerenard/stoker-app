@@ -1,8 +1,4 @@
-const axios = require('axios').default
-
-const { PORT } = require('../../variables.json')
-
-function stokerStore (state, emitter) {
+export function stokerStore (state, emitter) {
   // Blank state
   state = Object.assign(state, {
     data: [],
@@ -49,35 +45,22 @@ function stokerStore (state, emitter) {
     emitter.emit(state.events.RENDER)
   })
 
-  emitter.on(state.events.SESSION_SET, (id) => {
+  emitter.on(state.events.SESSION_SET, (session) => {
+    if (!session) throw Error('no session provided to `session:set`')
+    const { id } = session
     if (id === undefined) throw Error('no id provided to `session:set`')
 
     state.sessionID = id
     emitter.emit('chart:clear')
 
-    axios.get(`http://${window.location.hostname ? window.location.hostname : 'localhost'}:${PORT}/data/${id}`)
-      .then((response) => {
-        const session = response.data
-        const data = session.data
-        for (let i = 0; i < data.length; i++) {
-          const datapoint = data[i]
-          const update = i === data.length - 1
-          emitter.emit('chart:render', datapoint, update)
-        }
-      })
-  })
-
-  function getSessions () {
-    return axios.get(`http://${window.location.hostname ? window.location.hostname : 'localhost'}:${PORT}/sessions`)
-      .then((response) => {
-        state.sessions = response.data
-      })
-  }
-
-  getSessions().then(() => {
-    emitter.emit(state.events.SESSION_SET, state.sessions.length - 1)
-    emitter.emit(state.events.RENDER)
+    // The bridge exposes sessionData as (args, onData): the callback crosses
+    // as a wrapped argument (returned stream objects cannot carry functions)
+    state.rpc.sessionData({ sessionId: state.sessionID }, ({ sensors }) => {
+      const dataset = sensors.reduce((p, n) => {
+        p[n.name] = { x: n.timestamp, y: n.tempCurrent }
+        return p
+      }, {})
+      emitter.emit('chart:render', dataset)
+    })
   })
 }
-
-module.exports = stokerStore

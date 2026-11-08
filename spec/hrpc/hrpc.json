@@ -1,0 +1,104 @@
+{
+  "version": 6,
+  "schema": [
+    {
+      "id": 0,
+      "name": "@stoker-app/store-get",
+      "request": {
+        "name": "@stoker-app/config-get-request"
+      },
+      "response": {
+        "name": "@stoker-app/config-get-response"
+      },
+      "version": 1
+    },
+    {
+      "id": 1,
+      "name": "@stoker-app/store-set",
+      "request": {
+        "name": "@stoker-app/config-set-request"
+      },
+      "response": {
+        "name": "@stoker-app/config-set-response"
+      },
+      "version": 1
+    },
+    {
+      "id": 2,
+      "name": "@stoker-app/get-sessions",
+      "request": {
+        "name": "@stoker-app/get-sessions-request"
+      },
+      "response": {
+        "name": "@stoker-app/get-sessions-response"
+      },
+      "version": 1
+    },
+    {
+      "id": 3,
+      "name": "@stoker-app/session-data",
+      "request": {
+        "name": "@stoker-app/session-data-request",
+        "stream": false
+      },
+      "response": {
+        "name": "@stoker-app/session-data-response",
+        "stream": true
+      },
+      "version": 2
+    },
+    {
+      "id": 4,
+      "name": "@stoker-app/worker-event",
+      "request": {
+        "name": "@stoker-app/worker-event-request",
+        "send": true
+      },
+      "version": 3
+    },
+    {
+      "id": 5,
+      "name": "@stoker-app/apply-update",
+      "request": {
+        "name": "@stoker-app/apply-update-request"
+      },
+      "response": {
+        "name": "@stoker-app/apply-update-response"
+      },
+      "version": 4
+    },
+    {
+      "id": 4,
+      "name": "@stoker-app/create-session",
+      "request": {
+        "name": "@stoker-app/session-create-request"
+      },
+      "response": {
+        "name": "@stoker-app/session"
+      },
+      "version": 5
+    },
+    {
+      "id": 5,
+      "name": "@stoker-app/delete-session",
+      "request": {
+        "name": "@stoker-app/session-delete-request"
+      },
+      "response": {
+        "name": "@stoker-app/session-delete-response"
+      },
+      "version": 5
+    },
+    {
+      "id": 6,
+      "name": "@stoker-app/edit-session",
+      "request": {
+        "name": "@stoker-app/session-edit-request"
+      },
+      "response": {
+        "name": "@stoker-app/session"
+      },
+      "version": 6
+    }
+  ]
+}

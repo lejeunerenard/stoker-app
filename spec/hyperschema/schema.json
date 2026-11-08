@@ -1,0 +1,467 @@
+{
+  "version": 6,
+  "schema": [
+    {
+      "name": "config",
+      "namespace": "stoker-app",
+      "compact": true,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "key",
+          "required": true,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "value",
+          "required": true,
+          "type": "json",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "config-get-request",
+      "namespace": "stoker-app",
+      "compact": true,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "key",
+          "required": true,
+          "type": "string",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "config-get-response",
+      "namespace": "stoker-app",
+      "compact": true,
+      "flagsPosition": 0,
+      "fields": [
+        {
+          "name": "value",
+          "type": "json",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "config-set-request",
+      "namespace": "stoker-app",
+      "compact": true,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "key",
+          "required": true,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "value",
+          "required": true,
+          "type": "json",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "config-set-response",
+      "namespace": "stoker-app",
+      "compact": true,
+      "flagsPosition": 0,
+      "fields": [
+        {
+          "name": "success",
+          "required": false,
+          "type": "bool",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "sensor-id",
+      "namespace": "rocks-bbq-stokerii",
+      "alias": "string",
+      "version": 1
+    },
+    {
+      "name": "blower-id",
+      "namespace": "rocks-bbq-stokerii",
+      "alias": "string",
+      "version": 1
+    },
+    {
+      "name": "stoker-version",
+      "namespace": "rocks-bbq-stokerii",
+      "alias": "string",
+      "version": 1
+    },
+    {
+      "name": "sensor",
+      "namespace": "rocks-bbq-stokerii",
+      "compact": false,
+      "flagsPosition": 7,
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "@rocks-bbq-stokerii/sensor-id",
+          "version": 1
+        },
+        {
+          "name": "name",
+          "required": true,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "al",
+          "required": true,
+          "type": "uint8",
+          "version": 1
+        },
+        {
+          "name": "ta",
+          "required": true,
+          "type": "float32",
+          "version": 1
+        },
+        {
+          "name": "th",
+          "required": true,
+          "type": "float32",
+          "version": 1
+        },
+        {
+          "name": "tl",
+          "required": true,
+          "type": "float32",
+          "version": 1
+        },
+        {
+          "name": "tc",
+          "required": true,
+          "type": "float32",
+          "version": 1
+        },
+        {
+          "name": "blower",
+          "required": false,
+          "type": "@rocks-bbq-stokerii/blower-id",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "blower",
+      "namespace": "rocks-bbq-stokerii",
+      "compact": false,
+      "flagsPosition": 2,
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "@rocks-bbq-stokerii/blower-id",
+          "version": 1
+        },
+        {
+          "name": "name",
+          "required": true,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "on",
+          "required": false,
+          "type": "bool",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "stoker",
+      "namespace": "rocks-bbq-stokerii",
+      "compact": false,
+      "flagsPosition": 2,
+      "fields": [
+        {
+          "name": "sensors",
+          "required": true,
+          "array": true,
+          "type": "@rocks-bbq-stokerii/sensor",
+          "version": 1
+        },
+        {
+          "name": "blowers",
+          "required": true,
+          "array": true,
+          "type": "@rocks-bbq-stokerii/blower",
+          "version": 1
+        },
+        {
+          "name": "version",
+          "required": false,
+          "type": "@rocks-bbq-stokerii/stoker-version",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "stoker-datapoint",
+      "namespace": "rocks-bbq-stokerii",
+      "compact": false,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "stoker",
+          "required": true,
+          "type": "@rocks-bbq-stokerii/stoker",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "session-id",
+      "namespace": "stoker-app",
+      "compact": false,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "createdOn",
+          "required": true,
+          "type": "date",
+          "version": 1
+        },
+        {
+          "name": "key",
+          "required": true,
+          "type": "fixed32",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "session",
+      "namespace": "stoker-app",
+      "compact": false,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "@stoker-app/session-id",
+          "version": 1
+        },
+        {
+          "name": "name",
+          "required": true,
+          "type": "string",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "stoker-datapoint",
+      "namespace": "stoker-app",
+      "compact": false,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "stoker",
+          "required": true,
+          "type": "@rocks-bbq-stokerii/stoker",
+          "version": 1
+        },
+        {
+          "name": "timestamp",
+          "required": true,
+          "type": "date",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "get-sessions-request",
+      "namespace": "stoker-app",
+      "compact": false,
+      "flagsPosition": -1,
+      "fields": []
+    },
+    {
+      "name": "get-sessions-response",
+      "namespace": "stoker-app",
+      "compact": false,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "sessions",
+          "required": true,
+          "array": true,
+          "type": "@stoker-app/session",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "sensor-data",
+      "namespace": "stoker-app",
+      "compact": false,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "name",
+          "required": true,
+          "type": "string",
+          "version": 2
+        },
+        {
+          "name": "tempCurrent",
+          "required": true,
+          "type": "float32",
+          "version": 2
+        },
+        {
+          "name": "timestamp",
+          "required": true,
+          "type": "date",
+          "version": 2
+        }
+      ]
+    },
+    {
+      "name": "session-data-request",
+      "namespace": "stoker-app",
+      "compact": false,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "sessionId",
+          "required": true,
+          "type": "@stoker-app/session-id",
+          "version": 2
+        }
+      ]
+    },
+    {
+      "name": "session-data-response",
+      "namespace": "stoker-app",
+      "compact": false,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "sensors",
+          "required": true,
+          "array": true,
+          "type": "@stoker-app/sensor-data",
+          "version": 2
+        }
+      ]
+    },
+    {
+      "name": "worker-event-request",
+      "namespace": "stoker-app",
+      "compact": true,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "name",
+          "required": true,
+          "type": "string",
+          "version": 3
+        }
+      ]
+    },
+    {
+      "name": "apply-update-request",
+      "namespace": "stoker-app",
+      "compact": true,
+      "flagsPosition": -1,
+      "fields": []
+    },
+    {
+      "name": "apply-update-response",
+      "namespace": "stoker-app",
+      "compact": true,
+      "flagsPosition": 0,
+      "fields": [
+        {
+          "name": "ok",
+          "required": false,
+          "type": "bool",
+          "version": 4
+        },
+        {
+          "name": "error",
+          "type": "string",
+          "version": 4
+        }
+      ]
+    },
+    {
+      "name": "session-create-request",
+      "namespace": "stoker-app",
+      "compact": false,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "name",
+          "required": true,
+          "type": "string",
+          "version": 5
+        }
+      ]
+    },
+    {
+      "name": "session-delete-request",
+      "namespace": "stoker-app",
+      "compact": false,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "sessionId",
+          "required": true,
+          "type": "@stoker-app/session-id",
+          "version": 5
+        }
+      ]
+    },
+    {
+      "name": "session-delete-response",
+      "namespace": "stoker-app",
+      "compact": true,
+      "flagsPosition": 0,
+      "fields": [
+        {
+          "name": "success",
+          "required": false,
+          "type": "bool",
+          "version": 5
+        }
+      ]
+    },
+    {
+      "name": "session-edit-request",
+      "namespace": "stoker-app",
+      "compact": false,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "sessionId",
+          "required": true,
+          "type": "@stoker-app/session-id",
+          "version": 6
+        },
+        {
+          "name": "name",
+          "required": true,
+          "type": "string",
+          "version": 6
+        }
+      ]
+    }
+  ]
+}

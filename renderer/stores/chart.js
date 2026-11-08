@@ -1,6 +1,6 @@
-const Chart = require('chart.js')
+import Chart from 'chart.js'
 
-function chartStore (_, emitter) {
+export function chartStore (_, emitter) {
   let chart = null
 
   function initChart () {
@@ -47,16 +47,14 @@ function chartStore (_, emitter) {
   emitter.on('chart:render', (data, render = true) => {
     if (!chart) initChart()
 
-    const datapoints = massageData(data)
-
-    for (const [label, value] of Object.entries(datapoints)) {
+    for (const [label, value] of Object.entries(data)) {
       // Attempt to find an existing dataset
       let found = false
       for (let i = 0; i < chart.data.datasets.length; i++) {
         const dataset = chart.data.datasets[i]
         if (dataset.label === label) {
           found = true
-          dataset.data.push(datapoints[label])
+          dataset.data.push(value)
           break
         }
       }
@@ -77,17 +75,4 @@ function chartStore (_, emitter) {
       chart.update()
     }
   })
-
-  function massageData (data) {
-    if (data.stoker.sensors) {
-      return data.stoker.sensors.reduce((prev, sensor) => {
-        prev[sensor.name] = { x: new Date(data.timestamp), y: sensor.tempCurrent }
-        return prev
-      }, {})
-    }
-
-    return []
-  }
 }
-
-module.exports = chartStore
