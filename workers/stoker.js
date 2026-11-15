@@ -1,4 +1,4 @@
-const EventEmitter = require('events').EventEmitter
+const { EventEmitter } = require('events')
 const querystring = require('querystring')
 const http = require('http')
 

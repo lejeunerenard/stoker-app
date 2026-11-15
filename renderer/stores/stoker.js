@@ -66,9 +66,7 @@ export function stokerStore (state, emitter) {
     emitter.emit(state.events.RENDER)
   })
 
-  // relayed from the worker: the saved address answered, but not with stoker
-  // data (non-JSON body, bad status); generic copy — evt.message is the raw
-  // reason and stays out of the UI
+  // generic error from stoker
   emitter.on('stoker:error', () => {
     state.errors = []
     state.errors.push(`Stoker at ${state.stokerIP} returned an unexpected response`)
