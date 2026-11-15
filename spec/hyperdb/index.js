@@ -6,7 +6,7 @@ const { version, getEncoding, setVersion } = require('./messages.js')
 
 const versions = { schema: version, db: 0 }
 
-const helpers1 = require('../../builder/inverted-indexes.js')
+const helpers1 = require('../../node_modules/timeseries-db/builder/inverted-indexes.js')
 
 // '@stoker-app/config' collection key
 const collection0_key = new IndexEncoder([
