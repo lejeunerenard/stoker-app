@@ -176,6 +176,12 @@ stokerServer.on('stoker:setip', (ip) => {
   // unawaited: a rejection here would be an unhandled one
   store.set('stokerIP', ip).catch((err) => console.log('store set error', err))
 })
+
+stokerServer.on('stoker:not-found', () => rpc.workerEvent({ name: 'stoker:not-found' }))
+stokerServer.on('stoker:error', ({ message }) => {
+  // rpc.workerEvent({ name: 'stoker:error', message })
+})
+
 stokerServer.on('error', (e) => {
   console.log('error', e)
 })

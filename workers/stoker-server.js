@@ -30,10 +30,13 @@ class StokerServer {
       })
 
       this.stoker.on('error', (e) => {
-        if (e.code === 'EHOSTUNREACH' || e.code === 'EHOSTDOWN' || e.code === 'ETIMEDOUT' || e.code === 'ECONNABORTED' || e.code === 'ECONNREFUSED') {
+        // TODO add validation of passed host & port for the stoker to avoid ERR_INVALID_URL
+        if (e.code === 'EHOSTUNREACH' || e.code === 'EHOSTDOWN' || e.code === 'ETIMEDOUT' || e.code === 'ECONNABORTED' || e.code === 'ECONNREFUSED' || e.code === 'ENOTFOUND' || e.code === 'ERR_INVALID_URL') {
           app.emit('stoker:not-found')
         } else {
-          throw e
+          app.emit('stoker:error', {
+            message: e && e.message ? e.message : String(e)
+          })
         }
       })
     }

@@ -66,6 +66,15 @@ export function stokerStore (state, emitter) {
     emitter.emit(state.events.RENDER)
   })
 
+  // relayed from the worker: the saved address answered, but not with stoker
+  // data (non-JSON body, bad status); generic copy — evt.message is the raw
+  // reason and stays out of the UI
+  emitter.on('stoker:error', () => {
+    state.errors = []
+    state.errors.push(`Stoker at ${state.stokerIP} returned an unexpected response`)
+    emitter.emit(state.events.RENDER)
+  })
+
   // One finite `session-data` fetch. hrpc v4 never reports a response ending
   // (see preload note), so the poll timer, not a stream event, schedules the
   // next one — including after a throw here

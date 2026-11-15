@@ -38,7 +38,13 @@ class Stoker extends EventEmitter {
               json += chunk.toString()
             })
             .on('end', () => {
-              const data = JSON.parse(json)
+              let data
+              try {
+                data = JSON.parse(json)
+              } catch (err) {
+                reject(err)
+                return
+              }
               if (res.statusCode !== 200) {
                 reject(data.error)
               } else {
