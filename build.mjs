@@ -277,6 +277,12 @@ stoker.register({
 })
 
 stoker.register({
+  name: 'worker-started-request',
+  compact: true,
+  fields: []
+})
+
+stoker.register({
   name: 'apply-update-request',
   compact: true,
   fields: []
@@ -383,6 +389,14 @@ rpc.register({
   name: 'worker-event',
   request: {
     name: `@${NS}/worker-event-request`,
+    send: true
+  }
+})
+
+rpc.register({
+  name: 'worker-started',
+  request: {
+    name: `@${NS}/worker-started-request`,
     send: true
   }
 })

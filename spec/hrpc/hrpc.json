@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 7,
   "schema": [
     {
       "id": 0,
@@ -99,6 +99,15 @@
         "name": "@stoker-app/session"
       },
       "version": 6
+    },
+    {
+      "id": 8,
+      "name": "@stoker-app/worker-started",
+      "request": {
+        "name": "@stoker-app/worker-started-request",
+        "send": true
+      },
+      "version": 7
     }
   ]
 }

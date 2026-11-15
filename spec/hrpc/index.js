@@ -22,7 +22,9 @@ const methods = new Map([
   ['@stoker-app/delete-session', 7],
   [7, '@stoker-app/delete-session'],
   ['@stoker-app/edit-session', 8],
-  [8, '@stoker-app/edit-session']
+  [8, '@stoker-app/edit-session'],
+  ['@stoker-app/worker-started', 9],
+  [9, '@stoker-app/worker-started']
 ])
 
 class HRPC {
@@ -38,7 +40,8 @@ class HRPC {
       ['@stoker-app/apply-update', getEncoding('@stoker-app/apply-update-request')],
       ['@stoker-app/create-session', getEncoding('@stoker-app/session-create-request')],
       ['@stoker-app/delete-session', getEncoding('@stoker-app/session-delete-request')],
-      ['@stoker-app/edit-session', getEncoding('@stoker-app/session-edit-request')]
+      ['@stoker-app/edit-session', getEncoding('@stoker-app/session-edit-request')],
+      ['@stoker-app/worker-started', getEncoding('@stoker-app/worker-started-request')]
     ])
     this._responseEncodings = new Map([
       ['@stoker-app/store-get', getEncoding('@stoker-app/config-get-response')],
@@ -148,6 +151,10 @@ class HRPC {
     return this._call('@stoker-app/edit-session', args)
   }
 
+  workerStarted (args) {
+    return this._callSync('@stoker-app/worker-started', args)
+  }
+
   onStoreGet (responseFn) {
     this._handlers['@stoker-app/store-get'] = responseFn
   }
@@ -184,6 +191,10 @@ class HRPC {
     this._handlers['@stoker-app/edit-session'] = responseFn
   }
 
+  onWorkerStarted (responseFn) {
+    this._handlers['@stoker-app/worker-started'] = responseFn
+  }
+
   _requestIsStream (command) {
     return [
     ].includes(command)
@@ -197,7 +208,8 @@ class HRPC {
 
   _requestIsSend (command) {
     return [
-      '@stoker-app/worker-event'
+      '@stoker-app/worker-event',
+      '@stoker-app/worker-started'
     ].includes(command)
   }
 }

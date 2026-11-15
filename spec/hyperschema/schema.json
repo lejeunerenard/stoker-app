@@ -1,5 +1,5 @@
 {
-  "version": 8,
+  "version": 9,
   "schema": [
     {
       "name": "config",
@@ -571,6 +571,13 @@
           "version": 7
         }
       ]
+    },
+    {
+      "name": "worker-started-request",
+      "namespace": "stoker-app",
+      "compact": true,
+      "flagsPosition": -1,
+      "fields": []
     }
   ]
 }

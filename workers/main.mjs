@@ -179,7 +179,7 @@ stokerServer.on('stoker:setip', (ip) => {
 
 stokerServer.on('stoker:not-found', () => rpc.workerEvent({ name: 'stoker:not-found' }))
 stokerServer.on('stoker:error', ({ message }) => {
-  // rpc.workerEvent({ name: 'stoker:error', message })
+  rpc.workerEvent({ name: 'stoker:error', message })
 })
 
 stokerServer.on('error', (e) => {
@@ -200,3 +200,4 @@ goodbye(async () => {
 })
 
 console.log('Worker started')
+rpc.workerStarted()
