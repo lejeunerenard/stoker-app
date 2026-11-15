@@ -51,8 +51,8 @@
     "bare-stream": "^2.2.1",
     "chart.js": "^2.9.4",
     "choo": "^7.1.0",
-    "compact-encoding": "^3.1.0",
     "choo-devtools": "^3.0.4",
+    "compact-encoding": "^3.1.0",
     "corestore": "^7.15.0",
     "framed-stream": "^1.0.1",
     "graceful-goodbye": "^1.3.3",
@@ -63,9 +63,9 @@
     "hyperswarm": "^4.17.2",
     "index-encoder": "^3.5.0",
     "paparam": "^1.10.0",
-    "timeseries-db": "git+https://github.com/lejeunerenard/timeseries-db.git#aec9b1b70b8c0df0bdc41ec88ae8dc138c9ac017",
     "pear": "^3.0.0",
     "pear-runtime": "^1.3.1",
+    "timeseries-db": "github:lejeunerenard/timeseries-db#a83556efe3fc6cf9c2427d34c096d54207a56f22",
     "which-runtime": "^1.4.0"
   },
   "allowScripts": {
