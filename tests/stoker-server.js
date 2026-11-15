@@ -1,10 +1,11 @@
 const test = require('tape')
+const { EventEmitter } = require('events')
 const StokerServer = require('../workers/stoker-server')
 
 test('Stoker server', (t) => {
   t.test('constructor', (t) => {
     const ss = new StokerServer()
-    t.ok(ss.app)
+    t.ok(ss instanceof EventEmitter)
     t.end()
   })
 

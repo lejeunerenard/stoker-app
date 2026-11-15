@@ -1,22 +1,15 @@
 const Stoker = require('./stoker')
 const { EventEmitter } = require('events')
 
-class StokerServer {
+class StokerServer extends EventEmitter {
   constructor () {
+    super()
+
     this.stoker = null
     this.wss = null
     this.pollPeriod = 5 * 1000
 
-    const app = new EventEmitter() // express()
-    this.app = app
-
-    // // Adding data to sessions needs to be implemented, might need to use the store directly
-    // this.on('data', (data) => {
-    //   currentSession.data.push(data)
-    //   saveSession(currentSession, sessionDir)
-    // })
-
-    const setupStoker = (ip) => {
+    this.on('stoker:setip', (ip) => {
       if (this.stoker) this.stoker.close()
 
       this.stoker = new Stoker(ip, this.pollPeriod)
@@ -32,45 +25,14 @@ class StokerServer {
       this.stoker.on('error', (e) => {
         // TODO add validation of passed host & port for the stoker to avoid ERR_INVALID_URL
         if (e.code === 'EHOSTUNREACH' || e.code === 'EHOSTDOWN' || e.code === 'ETIMEDOUT' || e.code === 'ECONNABORTED' || e.code === 'ECONNREFUSED' || e.code === 'ENOTFOUND' || e.code === 'ERR_INVALID_URL') {
-          app.emit('stoker:not-found')
+          this.emit('stoker:not-found')
         } else {
-          app.emit('stoker:error', {
+          this.emit('stoker:error', {
             message: e && e.message ? e.message : String(e)
           })
         }
       })
-    }
-
-    app.on('stoker:setip', setupStoker)
-
-    // TODO Ensure the initial data request still works w/ the HRPC endpoint
-    // app.get('/data/:id', (req, res) => {
-    //   if (!('id' in req.params)) {
-    //     return res.send(400)
-    //   }
-
-    //   let id = req.params.id
-    //   if (id === 'current') {
-    //     id = sessions.length - 1
-    //   }
-    //   id = Number(id)
-
-    //   const session = sessions[id]
-
-    //   res.send(JSON.stringify(session))
-    // })
-
-    // app.get('/sessions', (req, res) => {
-    //   res.send(JSON.stringify(sessions))
-    // })
-  }
-
-  emit (event, ...args) {
-    this.app.emit(event, ...args)
-  }
-
-  on (event, ...args) {
-    this.app.on(event, ...args)
+    })
   }
 
   close () {
