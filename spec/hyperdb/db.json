@@ -7,6 +7,8 @@
       "namespace": "stoker-app",
       "id": 0,
       "type": 1,
+      "version": 0,
+      "versionField": null,
       "indexes": [],
       "schema": "@stoker-app/config",
       "derived": false,
@@ -20,11 +22,103 @@
       "namespace": "stoker-app",
       "id": 1,
       "type": 1,
+      "version": 0,
+      "versionField": null,
       "indexes": [],
       "schema": "@stoker-app/session",
       "derived": false,
       "key": [
         "id.key"
+      ],
+      "trigger": null
+    },
+    {
+      "name": "series-ids",
+      "namespace": "timeseries-db",
+      "id": 2,
+      "type": 1,
+      "version": 0,
+      "versionField": null,
+      "indexes": [
+        "@timeseries-db/series-by-tag",
+        "@timeseries-db/series-by-field"
+      ],
+      "schema": "@timeseries-db/series-normalized-key-inverted-lookup",
+      "derived": false,
+      "key": [
+        "measurement",
+        "tags",
+        "field"
+      ],
+      "trigger": null
+    },
+    {
+      "name": "series-by-tag",
+      "namespace": "timeseries-db",
+      "id": 3,
+      "type": 2,
+      "version": 0,
+      "collection": "@timeseries-db/series-ids",
+      "unique": false,
+      "deprecated": false,
+      "key": {
+        "type": {
+          "fields": [
+            {
+              "name": "key",
+              "type": "string"
+            },
+            {
+              "name": "value",
+              "type": "string"
+            }
+          ]
+        },
+        "map": "tagIndex"
+      }
+    },
+    {
+      "name": "series-by-field",
+      "namespace": "timeseries-db",
+      "id": 4,
+      "type": 2,
+      "version": 0,
+      "collection": "@timeseries-db/series-ids",
+      "unique": false,
+      "deprecated": false,
+      "key": {
+        "type": "string",
+        "map": "fieldIndex"
+      }
+    },
+    {
+      "name": "series-data",
+      "namespace": "timeseries-db",
+      "id": 5,
+      "type": 1,
+      "version": 0,
+      "versionField": null,
+      "indexes": [],
+      "schema": "@timeseries-db/series-datapoint",
+      "derived": false,
+      "key": [
+        "series-id",
+        "timestamp"
+      ],
+      "trigger": null
+    },
+    {
+      "name": "series-id-latest",
+      "namespace": "timeseries-db",
+      "id": 6,
+      "type": 1,
+      "version": 0,
+      "versionField": null,
+      "indexes": [],
+      "schema": "@timeseries-db/series-id-latest",
+      "derived": false,
+      "key": [
+        "name"
       ],
       "trigger": null
     }

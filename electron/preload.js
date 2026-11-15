@@ -56,11 +56,17 @@ contextBridge.exposeInMainWorld('bridge', {
       workerEventListeners.push(listener)
       return () => workerEventListeners.splice(workerEventListeners.indexOf(listener), 1)
     },
-    // Pass the data callback in as an argument: functions returned as object
-    // properties do not cross the isolation boundary (structured clone error)
-    sessionData: (args, onData) => {
+    // No `end`/`close` is emitted here: hrpc v4's client RPCStream never fires
+    // one when the worker finishes a response, so the renderer schedules its
+    // own polls
+    sessionData: (args, onData, onError) => {
       const stream = rpc.sessionData(args)
       if (onData) stream.on('data', onData)
+      if (onError) {
+        // message only: the Error object is a worker-context object
+        stream.on('error', (err) => onError(err && err.message ? err.message : String(err)))
+      }
+      return () => stream.destroy()
     }
   },
   onWorkerStdout: (specifier, listener) => {

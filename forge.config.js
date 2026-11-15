@@ -4,6 +4,7 @@
 const fs = require('fs')
 const path = require('path')
 const plink = require('pear-link')
+const child = require('child_process')
 
 const pkg = require('./package.json')
 const appName = pkg.productName ?? pkg.name
@@ -37,8 +38,15 @@ module.exports = {
       }
       return packageJson
     },
+    prePackage: async () => {
+      // renderer/bundle.js is gitignored but shipped: rebuild it so a stale
+      // copy cannot ship (the `package` pipeline runs prePackage)
+      child.execFileSync('node', [path.join(__dirname, 'renderbuild.mjs')], { cwd: __dirname })
+    },
     preMake: async () => {
       fs.rmSync(path.join(__dirname, 'out', 'make'), { recursive: true, force: true })
+      // same rebuild for the `make` pipeline
+      child.execFileSync('node', [path.join(__dirname, 'renderbuild.mjs')], { cwd: __dirname })
     }
   }
 }

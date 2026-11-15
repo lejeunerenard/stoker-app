@@ -4,6 +4,9 @@ import { menuView } from './components/menu'
 import { renderLatest } from './latest-stats'
 
 export function mainView (state, emit) {
+  // The chart (canvas) is on this route: engage chart polling (no-op if on)
+  emit('chart:enable')
+
   const latestStats = renderLatest(state)
   const formState = state.formState
   const updateBanner = state.updateReady

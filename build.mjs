@@ -2,6 +2,7 @@ import Hyperschema from 'hyperschema'
 import Hyperdb from 'hyperdb/builder'
 import HRPCBuilder from 'hrpc'
 import { generateSchema, NS as STOKERII_NS } from './builder/rocks-bbq-stokerii/index.mjs'
+import { generateSchema as generateTimeseriesSchema, NS as TIMESERIESDB_NS } from './builder/timeseries-db/index.mjs'
 
 const SCHEMA_DIR = './spec/hyperschema'
 const DB_DIR = './spec/hyperdb'
@@ -84,6 +85,10 @@ stoker.register({
 
 generateSchema(schema)
 
+// timeseries-db overlay types: registered here so they land in the single
+// `Hyperschema.toDisk(schema)` pass below
+generateTimeseriesSchema(schema)
+
 stoker.register({
   name: 'session-id',
   fields: [
@@ -163,6 +168,13 @@ stoker.register({
       name: 'sessionId',
       type: `@${NS}/session-id`,
       required: true
+    },
+    {
+      // live-chart cursor: datapoints strictly after this timestamp; the
+      // renderer chains one finite stream per request (hrpc v4 streams
+      // always end, open-ended follow streams are not supported)
+      name: 'since',
+      type: 'date'
     }
   ]
 })
@@ -286,7 +298,7 @@ stoker.register({
   ]
 })
 
-Hyperschema.toDisk(schema, { esm: true })
+Hyperschema.toDisk(schema, { esm: false })
 
 // HyperDB
 const db = Hyperdb.from(SCHEMA_DIR, DB_DIR)
@@ -304,6 +316,62 @@ stokerDb.collections.register({
   name: 'session',
   schema: `@${NS}/session`,
   key: ['id.key']
+})
+
+// timeseries-db overlay (mirror of the upstream library's build.js hyperdb
+// registrations, verified against its repo source). Registered AFTER
+// config/session so existing collection ids 0/1 stay stable — a renumbered
+// definition would orphan existing stored data. The namespace must stay
+// 'timeseries-db': the Timeseries wrapper resolves those exact names.
+const tsDb = db.namespace(TIMESERIESDB_NS)
+
+// emitted into the generated spec/hyperdb/index.js as
+// `require('../../builder/inverted-indexes.js')` → the vendored copy in the
+// app's builder/, whose `../spec/hyperschema/index.js` require then picks up
+// the regenerated app schema's `@timeseries-db/tag` encoding
+tsDb.require('builder/inverted-indexes.js')
+
+tsDb.collections.register({
+  name: 'series-ids',
+  schema: `@${TIMESERIESDB_NS}/series-normalized-key-inverted-lookup`,
+  key: ['measurement', 'tags', 'field']
+})
+
+// derived indexes for by-tag/by-field discovery of series (the Timeseries
+// wrapper v1 never probes them, kept for parity with the lib's db.json)
+tsDb.indexes.register({
+  name: 'series-by-tag',
+  collection: `@${TIMESERIESDB_NS}/series-ids`,
+  key: {
+    type: {
+      fields: [
+        { name: 'key', type: 'string' },
+        { name: 'value', type: 'string' }
+      ]
+    },
+    map: 'tagIndex'
+  }
+})
+
+tsDb.indexes.register({
+  name: 'series-by-field',
+  collection: `@${TIMESERIESDB_NS}/series-ids`,
+  key: {
+    type: 'string',
+    map: 'fieldIndex'
+  }
+})
+
+tsDb.collections.register({
+  name: 'series-data',
+  schema: `@timeseries-db/series-datapoint`,
+  key: ['series-id', 'timestamp']
+})
+
+tsDb.collections.register({
+  name: 'series-id-latest',
+  schema: `@timeseries-db/series-id-latest`,
+  key: ['name']
 })
 
 Hyperdb.toDisk(db, { esm: false })

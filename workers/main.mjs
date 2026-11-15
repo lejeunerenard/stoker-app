@@ -10,7 +10,7 @@ import Corestore from 'corestore'
 import goodbye from 'graceful-goodbye'
 import storage from 'bare-storage'
 import StokerServer from './stoker-server.js'
-import { Store } from './store/index.mjs'
+import { Store, toHex } from './store/index.mjs'
 import HRPC from '../spec/hrpc/index.js'
 
 console.log('Starting worker')
@@ -76,7 +76,7 @@ rpc.onStoreGet(async ({ key }) => {
 })
 
 rpc.onStoreSet(async ({ key, value }) => {
-  const success = store.set(key, value)
+  const success = await store.set(key, value)
   return { success }
 })
 
@@ -98,26 +98,74 @@ rpc.onDeleteSession(async ({ sessionId }) => {
   return { success: await store.deleteSession(sessionId) }
 })
 
-rpc.onSessionData((stream) => {
-  const { sessionId } = stream.data
-  console.log('Getting data for sessionId', sessionId)
-  stokerServer.on('data', (data) => {
-    const timestamp = new Date(data.timestamp)
-    const sensors = data.stoker.sensors.map((sensor) => ({
-      name: sensor.name,
-      tempCurrent: sensor.tc,
-      timestamp
-    }))
-    stream.write({ sensors })
-  })
+// per-poll/per-fetch chatter
+const DEBUG = false
+const logDebug = DEBUG ? (line) => console.log(line) : () => {}
+
+// The single writer into the timeseries-db overlay: one record per stoker
+// poll (measurement 'stoker', session tag, field sensor name); the renderer
+// reads it back through `session-data`
+stokerServer.on('data', async (data) => {
+  try {
+    const recorded = await store.recordStoker(data)
+    logDebug(`recorded ${recorded.length} datapoints`)
+  } catch (err) {
+    console.log('record error', err)
+  }
 })
 
-const stokerIP = await store.get('stokerIP')
+// `session-data` answers one fetch: the datapoints for a session at or after
+// `since`. Streams are finite — hrpc v4 gives the client no response-end
+// event, so the renderer re-requests each poll period with a `since` cursor
+// rather than following an open stream. `stream.end()` emits the bare-rpc
+// END frame, releasing the response stream and its request bookkeeping
+rpc.onSessionData(async (stream) => {
+  // `stream.data` is handed over before the request decodes: a synchronous
+  // throw here would be an unhandled rejection that ends the worker
+  const request = stream.data
+  if (!request || !request.sessionId || !request.sessionId.key) {
+    logDebug('session-data request without a sessionId')
+    stream.end()
+    return
+  }
+
+  const { sessionId, since } = request
+
+  // an unparsable cursor would silently blank the chart
+  if (since && Number(since) !== Number(since)) {
+    logDebug('session-data since is not a valid date')
+    stream.end()
+    return
+  }
+
+  logDebug(`session-data for ${toHex(sessionId.key)} since ${since}`)
+
+  try {
+    const points = await store.getSessionDatapoints(sessionId, since)
+    const batchSize = 100
+    for (let i = 0; i < points.length; i += batchSize) {
+      stream.write({ sensors: points.slice(i, i + batchSize) })
+    }
+  } catch (err) {
+    // a fetch the client cancelled mid-stream throws writes here
+    console.log('session data query error', err)
+  }
+
+  stream.end()
+})
+
+// top-level await here would be an uncaught rejection at boot
+let stokerIP = null
+try {
+  stokerIP = await store.get('stokerIP')
+} catch (err) {
+  console.log('boot config read error', err)
+}
 if (stokerIP) {
   stokerServer.emit('stoker:setip', stokerIP)
 } else {
   stokerServer.emit('stoker:setip', STOKER_IP)
-  store.set('stokerIP', STOKER_IP)
+  store.set('stokerIP', STOKER_IP).catch((err) => console.log('store set error', err))
 }
 store.onDidChange('stokerIP', (newIP, oldIP) => {
   if (newIP !== oldIP) {
@@ -125,7 +173,8 @@ store.onDidChange('stokerIP', (newIP, oldIP) => {
   }
 })
 stokerServer.on('stoker:setip', (ip) => {
-  store.set('stokerIP', ip)
+  // unawaited: a rejection here would be an unhandled one
+  store.set('stokerIP', ip).catch((err) => console.log('store set error', err))
 })
 stokerServer.on('error', (e) => {
   console.log('error', e)

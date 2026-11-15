@@ -48,13 +48,20 @@ export function chartStore (_, emitter) {
     if (!chart) initChart()
 
     for (const [label, value] of Object.entries(data)) {
-      // Attempt to find an existing dataset
+      // DB chunks deliver arrays of {x,y} points per label; single values
+      // still accepted for non-DB callers
+      const values = Array.isArray(value) ? value : [value]
+
+      // TODO unbounded: every point ever fetched stays in the dataset and is
+      // redrawn each poll (the hyperdb is the ledger this view could window)
       let found = false
       for (let i = 0; i < chart.data.datasets.length; i++) {
         const dataset = chart.data.datasets[i]
         if (dataset.label === label) {
           found = true
-          dataset.data.push(value)
+          for (const value of values) {
+            dataset.data.push(value)
+          }
           break
         }
       }
@@ -62,7 +69,7 @@ export function chartStore (_, emitter) {
       if (!found) {
         const opt = Object.assign({}, {
           label,
-          data: [value],
+          data: values.slice(0),
           fill: false,
           parsing: false
         }, getOptions(chart.data.datasets.length))
