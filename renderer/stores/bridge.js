@@ -45,20 +45,21 @@ export function bridgeStore (state, emitter) {
     console.error('worker stderr:', decoder.decode(data))
   })
 
-  // The `worker-event` op carries OTA update state plus the worker's relayed
-  // stoker poll errors (`not-found`: the saved ip is unreachable or badly
-  // typed; `error`: it answered but not with stoker data — see
-  // renderer/stores/stoker.js for the copy). hrpc's client-side handler for
-  // the send op: these start at the worker and end here
+  // `worker-event` carries OTA update state only
   rpc.onWorkerEvent((evt) => {
     if (evt.name === 'updating' || evt.name === 'updated') {
       state.updateReady = evt.name === 'updated'
       emitter.emit('worker:event', evt)
       emitter.emit(state.events.RENDER)
     }
-    if (evt.name === 'stoker:not-found' || evt.name === 'stoker:error') {
-      emitter.emit(evt.name, evt)
-    }
+  })
+
+  rpc.onStokerNotFound(() => {
+    emitter.emit('stoker:not-found')
+  })
+
+  rpc.onStokerError((msg) => {
+    emitter.emit('stoker:error', msg)
   })
 
   state.rpc = {

@@ -1,5 +1,5 @@
 {
-  "version": 9,
+  "version": 10,
   "schema": [
     {
       "name": "config",
@@ -578,6 +578,26 @@
       "compact": true,
       "flagsPosition": -1,
       "fields": []
+    },
+    {
+      "name": "stoker-not-found-request",
+      "namespace": "stoker-app",
+      "compact": true,
+      "flagsPosition": -1,
+      "fields": []
+    },
+    {
+      "name": "stoker-error-request",
+      "namespace": "stoker-app",
+      "compact": true,
+      "flagsPosition": 0,
+      "fields": [
+        {
+          "name": "message",
+          "type": "string",
+          "version": 10
+        }
+      ]
     }
   ]
 }

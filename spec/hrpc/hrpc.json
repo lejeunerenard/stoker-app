@@ -1,5 +1,5 @@
 {
-  "version": 7,
+  "version": 8,
   "schema": [
     {
       "id": 0,
@@ -108,6 +108,24 @@
         "send": true
       },
       "version": 7
+    },
+    {
+      "id": 9,
+      "name": "@stoker-app/stoker-not-found",
+      "request": {
+        "name": "@stoker-app/stoker-not-found-request",
+        "send": true
+      },
+      "version": 8
+    },
+    {
+      "id": 10,
+      "name": "@stoker-app/stoker-error",
+      "request": {
+        "name": "@stoker-app/stoker-error-request",
+        "send": true
+      },
+      "version": 8
     }
   ]
 }

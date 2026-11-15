@@ -24,7 +24,11 @@ const methods = new Map([
   ['@stoker-app/edit-session', 8],
   [8, '@stoker-app/edit-session'],
   ['@stoker-app/worker-started', 9],
-  [9, '@stoker-app/worker-started']
+  [9, '@stoker-app/worker-started'],
+  ['@stoker-app/stoker-not-found', 10],
+  [10, '@stoker-app/stoker-not-found'],
+  ['@stoker-app/stoker-error', 11],
+  [11, '@stoker-app/stoker-error']
 ])
 
 class HRPC {
@@ -41,7 +45,9 @@ class HRPC {
       ['@stoker-app/create-session', getEncoding('@stoker-app/session-create-request')],
       ['@stoker-app/delete-session', getEncoding('@stoker-app/session-delete-request')],
       ['@stoker-app/edit-session', getEncoding('@stoker-app/session-edit-request')],
-      ['@stoker-app/worker-started', getEncoding('@stoker-app/worker-started-request')]
+      ['@stoker-app/worker-started', getEncoding('@stoker-app/worker-started-request')],
+      ['@stoker-app/stoker-not-found', getEncoding('@stoker-app/stoker-not-found-request')],
+      ['@stoker-app/stoker-error', getEncoding('@stoker-app/stoker-error-request')]
     ])
     this._responseEncodings = new Map([
       ['@stoker-app/store-get', getEncoding('@stoker-app/config-get-response')],
@@ -155,6 +161,14 @@ class HRPC {
     return this._callSync('@stoker-app/worker-started', args)
   }
 
+  stokerNotFound (args) {
+    return this._callSync('@stoker-app/stoker-not-found', args)
+  }
+
+  stokerError (args) {
+    return this._callSync('@stoker-app/stoker-error', args)
+  }
+
   onStoreGet (responseFn) {
     this._handlers['@stoker-app/store-get'] = responseFn
   }
@@ -195,6 +209,14 @@ class HRPC {
     this._handlers['@stoker-app/worker-started'] = responseFn
   }
 
+  onStokerNotFound (responseFn) {
+    this._handlers['@stoker-app/stoker-not-found'] = responseFn
+  }
+
+  onStokerError (responseFn) {
+    this._handlers['@stoker-app/stoker-error'] = responseFn
+  }
+
   _requestIsStream (command) {
     return [
     ].includes(command)
@@ -209,7 +231,9 @@ class HRPC {
   _requestIsSend (command) {
     return [
       '@stoker-app/worker-event',
-      '@stoker-app/worker-started'
+      '@stoker-app/worker-started',
+      '@stoker-app/stoker-not-found',
+      '@stoker-app/stoker-error'
     ].includes(command)
   }
 }

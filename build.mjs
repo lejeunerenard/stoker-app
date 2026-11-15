@@ -283,6 +283,23 @@ stoker.register({
 })
 
 stoker.register({
+  name: 'stoker-not-found-request',
+  compact: true,
+  fields: []
+})
+
+stoker.register({
+  name: 'stoker-error-request',
+  compact: true,
+  fields: [
+    {
+      name: 'message',
+      type: 'string'
+    }
+  ]
+})
+
+stoker.register({
   name: 'apply-update-request',
   compact: true,
   fields: []
@@ -397,6 +414,22 @@ rpc.register({
   name: 'worker-started',
   request: {
     name: `@${NS}/worker-started-request`,
+    send: true
+  }
+})
+
+rpc.register({
+  name: 'stoker-not-found',
+  request: {
+    name: `@${NS}/stoker-not-found-request`,
+    send: true
+  }
+})
+
+rpc.register({
+  name: 'stoker-error',
+  request: {
+    name: `@${NS}/stoker-error-request`,
     send: true
   }
 })

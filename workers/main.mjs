@@ -177,10 +177,8 @@ stokerServer.on('stoker:setip', (ip) => {
   store.set('stokerIP', ip).catch((err) => console.log('store set error', err))
 })
 
-stokerServer.on('stoker:not-found', () => rpc.workerEvent({ name: 'stoker:not-found' }))
-stokerServer.on('stoker:error', ({ message }) => {
-  rpc.workerEvent({ name: 'stoker:error', message })
-})
+stokerServer.on('stoker:not-found', () => rpc.stokerNotFound())
+stokerServer.on('stoker:error', ({ message }) => rpc.stokerError({ message }))
 
 stokerServer.on('error', (e) => {
   console.log('error', e)
