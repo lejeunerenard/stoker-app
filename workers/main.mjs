@@ -217,6 +217,30 @@ rpc.onSessionData(async (stream) => {
   stream.end()
 })
 
+// the stoker starts polling on boot ensure there is a session to attribute it to
+try {
+  const bootSessions = await store.getSessions()
+
+  if (!bootSessions.length) {
+    const starter = await store.createSession({
+      name: `Starter ${new Date().toISOString().slice(0, 10)}`
+    })
+    await store.set('currentSession', toHex(starter.id.key))
+  } else {
+    let latest = bootSessions[0]
+    for (const session of bootSessions) {
+      if (session.id.createdOn > latest.id.createdOn) latest = session
+    }
+
+    const latestKey = toHex(latest.id.key)
+    if (await store.get('currentSession') !== latestKey) {
+      await store.set('currentSession', latestKey)
+    }
+  }
+} catch (err) {
+  console.log('boot session setup error', err)
+}
+
 // top-level await here would be an uncaught rejection at boot
 let stokerIP = null
 try {
