@@ -114,11 +114,26 @@ stokerServer.on('data', async (data) => {
   }
 })
 
-// `session-data` answers one fetch: the datapoints for a session at or after
-// `since`. Streams are finite — hrpc v4 gives the client no response-end
-// event, so the renderer re-requests each poll period with a `since` cursor
-// rather than following an open stream. `stream.end()` emits the bare-rpc
-// END frame, releasing the response stream and its request bookkeeping
+// The worker polls the timeseries-db on this period; the renderer follows one
+// live `session-data` stream instead of scheduling its own fetches
+const POLL_PERIOD_MS = 5 * 1000
+
+// how far the cursor is rewound on follow-up queries. A series row is created
+// by the same flush as a field's first datapoint, so a query whose `findSeries`
+// scan ran before that flush cannot see the new field at all; re-querying a
+// window covers it, `seen` dedupes the overlap
+const CHART_BACKFILL_MS = 60 * 1000
+
+function sleep (ms) {
+  return new Promise((cb) => setTimeout(cb, ms))
+}
+
+// `session-data` is one live stream per session: it stays open until the
+// renderer closes it (`stream.destroy()` sends the bare-rpc DESTROY frame,
+// which destroys this side and marks the stream destroyed — the loop check
+// below is what stops the polling). Polling the db is this handler's job: the
+// renderer just reads chunks as they arrive and re-opens the stream with a
+// `since` cursor when it comes back to the chart view
 rpc.onSessionData(async (stream) => {
   // `stream.data` is handed over before the request decodes: a synchronous
   // throw here would be an unhandled rejection that ends the worker
@@ -140,15 +155,63 @@ rpc.onSessionData(async (stream) => {
 
   logDebug(`session-data for ${toHex(sessionId.key)} since ${since}`)
 
-  try {
-    const points = await store.getSessionDatapoints(sessionId, since)
-    const batchSize = 100
-    for (let i = 0; i < points.length; i += batchSize) {
-      stream.write({ sensors: points.slice(i, i + batchSize) })
+  // newest timestamp delivered; each query rewinds it by CHART_BACKFILL_MS, so
+  // `seen` is kept to that window and holds every name+timestamp a future
+  // query can re-request. It is kept as a number: the query bound below has
+  // to be a Date, the hyperdb timestamp columns are compact-encoded as dates
+  let cursor = since ? Number(since) : null
+  const seen = new Map()
+
+  while (!stream.destroyed) {
+    const lower = cursor === null
+      ? null
+      : new Date(Math.max(0, cursor - CHART_BACKFILL_MS))
+    let points
+
+    try {
+      points = await store.getSessionDatapoints(sessionId, lower)
+    } catch (err) {
+      // the query failed, the stream did not: stay put and retry next period,
+      // so one bad scan does not end the live feed
+      console.log('session data query error', err)
+      await sleep(POLL_PERIOD_MS)
+      continue
     }
-  } catch (err) {
-    // a fetch the client cancelled mid-stream throws writes here
-    console.log('session data query error', err)
+
+    const fresh = []
+    for (const point of points) {
+      const timestamp = Number(point.timestamp)
+      let names = seen.get(timestamp)
+      if (!names) {
+        names = new Set()
+        seen.set(timestamp, names)
+      }
+      if (names.has(point.name)) continue
+      names.add(point.name)
+      fresh.push(point)
+      if (cursor === null || timestamp > cursor) cursor = timestamp
+    }
+
+    if (cursor !== null) {
+      const floor = Number(cursor) - CHART_BACKFILL_MS
+      for (const timestamp of seen.keys()) {
+        if (timestamp < floor) seen.delete(timestamp)
+      }
+    }
+
+    try {
+      const batchSize = 100
+      for (let i = 0; i < fresh.length; i += batchSize) {
+        stream.write({ sensors: fresh.slice(i, i + batchSize) })
+      }
+    } catch (err) {
+      // streamx drops writes to a closed stream, so the loop check above is
+      // what normally ends this: the catch covers a stream that errors out
+      console.log('session data write error', err)
+      break
+    }
+
+    await sleep(POLL_PERIOD_MS)
   }
 
   stream.end()

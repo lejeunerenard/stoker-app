@@ -110,15 +110,13 @@ export class Store {
     // matching gte+lte identity: a gte-only bound is an open range scan and
     // would include other sessions' series
     const bound = { measurement: MEASUREMENT, tags }
-    const series = await this.ts.findSeries({ gte: bound, lte: bound })
     let points = []
-    for (const row of series) {
+    for await (const row of await this.ts.findSeries({ gte: bound, lte: bound })) {
       const identity = { measurement: MEASUREMENT, tags: row.tags, field: row.field }
       const search = since
         ? { gte: { ...identity, timestamp: since }, lte: identity }
         : { gte: identity, lte: identity }
-      const stream = await this.ts.find(search)
-      for (const point of await stream.toArray()) {
+      for await (const point of await this.ts.find(search)) {
         points.push({ name: row.field, tempCurrent: point.value / 10, timestamp: point.timestamp })
       }
     }

@@ -4,7 +4,8 @@ import { menuView } from './components/menu'
 import { renderLatest } from './latest-stats'
 
 export function mainView (state, emit) {
-  // The chart (canvas) is on this route: engage chart polling (no-op if on)
+  // The chart (canvas) is on this route: open the live chart stream (no-op if
+  // already open)
   emit('chart:enable')
 
   const latestStats = renderLatest(state)

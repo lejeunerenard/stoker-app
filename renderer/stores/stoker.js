@@ -11,31 +11,24 @@ export function stokerStore (state, emitter) {
     errors: [],
     sessions: [],
     sessionID: null,
-    // closer for the in-flight `session-data` fetch, null when idle
+    // closer for the live `session-data` stream, null when the chart view is
+    // off this route
     chartStream: null,
-    // newest timestamp received; the next request's `since` cursor (less the
-    // backfill), null = fetch the whole session
+    // newest timestamp received; a reopened stream's `since` cursor, null =
+    // read the whole session
     chartCursor: null,
-    // setTimeout handle for the pending poll
-    chartTimer: null,
-    // ms timestamp of the last fetch
-    chartLastPollAt: null,
     // timestamp → field names already delivered at it, kept to the backfill
     // window so the re-requested overlap dedupes in bounded memory
     chartSeen: null,
-    // chart view engaged? polls stop when the session-management tab renders
-    chartActive: false
+    // chart route rendering? `chart:enable`/`chart:disable` from the views set
+    // it: the stream only stays open while it is true
+    chartView: false
   })
 
   state.events.SESSION_SET = 'session:set'
 
-  // stoker-server polls every 5 s; the chart fetches once per period
-  const POLL_PERIOD_MS = 5000
-
-  // how far the cursor is rewound on follow-up fetches. A series row is
-  // created by the same flush as a field's first datapoint, so a fetch whose
-  // `findSeries` scan ran before that flush cannot see the new field at all;
-  // re-requesting a window covers it, `chartSeen` dedupes the overlap
+  // the worker rewinds its cursor by this much on every query once it has
+  // delivered a datapoint (see workers/main.mjs)
   const CHART_BACKFILL_MS = 60000
 
   emitter.once('store:get:stokerIP', (ip) => {
@@ -73,22 +66,18 @@ export function stokerStore (state, emitter) {
     emitter.emit(state.events.RENDER)
   })
 
-  // One finite `session-data` fetch. hrpc v4 never reports a response ending
-  // (see preload note), so the poll timer, not a stream event, schedules the
-  // next one — including after a throw here
-  function requestChartData () {
-    if (!state.chartActive || !state.sessionID) return
+  // One live `session-data` stream per chart
+  function startChartData () {
+    if (!state.sessionID) return
 
     if (state.chartStream) {
       state.chartStream()
       state.chartStream = null
     }
 
-    state.chartLastPollAt = Date.now()
-
     const args = { sessionId: state.sessionID }
     if (state.chartCursor) {
-      args.since = new Date(Math.max(0, Number(state.chartCursor) - CHART_BACKFILL_MS))
+      args.since = new Date(Number(state.chartCursor))
     }
 
     try {
@@ -99,20 +88,19 @@ export function stokerStore (state, emitter) {
         },
         (message) => {
           state.errors = []
-          state.errors.push(`Session data fetch failed: ${message}`)
+          state.errors.push(`Session data stream failed: ${message}`)
           emitter.emit(state.events.RENDER)
         }
       )
     } catch (err) {
       state.errors = []
-      state.errors.push(`Session data fetch failed: ${err.message}`)
+      state.errors.push(`Session data stream failed: ${err.message}`)
       emitter.emit(state.events.RENDER)
     }
   }
 
-  // Fold one fetch chunk into the `latest` map and the chart dataset.
-  // Re-delivered points are expected (inclusive cursor + backfill), `chartSeen`
-  // filters them
+  // Fold one chunk into the `latest` map and the chart dataset. Re-delivered
+  // points are expected (the worker's cursor rewind), `chartSeen` filters them
   function collectChunk (chunk) {
     if (!state.chartSeen) return
 
@@ -143,7 +131,7 @@ export function stokerStore (state, emitter) {
     }
 
     // nothing new: no redraw, and drop the seen-window below the oldest
-    // timestamp a future fetch can ask for
+    // timestamp a future query can ask for
     if (!newPoints) return
 
     if (state.chartCursor) {
@@ -157,41 +145,21 @@ export function stokerStore (state, emitter) {
     emitter.emit(state.events.RENDER)
   }
 
-  function schedulePoll () {
-    if (state.chartTimer) return
-    // next fetch at the period deadline after the last one; the 250 ms floor
-    // stops a slow fetch from firing a refetch burst
-    const elapsed = state.chartLastPollAt ? Date.now() - state.chartLastPollAt : 0
-    state.chartTimer = setTimeout(
-      () => {
-        state.chartTimer = null
-        if (!state.chartActive) return
-        requestChartData()
-        schedulePoll()
-      },
-      Math.max(250, POLL_PERIOD_MS - elapsed)
-    )
-  }
-
   emitter.on(state.events.SESSION_SET, (session) => {
     if (!session) throw Error('no session provided to `session:set`')
     const { id } = session
     if (id === undefined) throw Error('no id provided to `session:set`')
 
-    // drop the previous session's in-flight fetch and pending poll
+    // the previous session's live stream: closing it tells the worker to stop
+    // querying for that session
     if (state.chartStream) {
       state.chartStream()
       state.chartStream = null
-    }
-    if (state.chartTimer) {
-      clearTimeout(state.chartTimer)
-      state.chartTimer = null
     }
 
     state.sessionID = id
     state.chartCursor = null
     state.chartSeen = new Map()
-    state.chartLastPollAt = null
     state.latest = {}
     state.lastUpdate = null
     emitter.emit('chart:clear')
@@ -205,33 +173,29 @@ export function stokerStore (state, emitter) {
       state.errors.push(`Current session could not be tagged: ${err.message}`)
     }
 
-    state.chartActive = true
-    requestChartData()
-    schedulePoll()
+    // reopen only when the chart route is the one rendering: from the
+    // session-management tab the stream stays closed until `chart:enable`
+    if (state.chartView) startChartData()
     emitter.emit(state.events.RENDER)
   })
 
-  // Chart view rendering: start the poll chain (already engaged: no-op)
+  // Chart view rendering: open the live stream (already open: no-op). While it
+  // is open the renderer gets a message per chunk the worker reads off the db
   emitter.on('chart:enable', () => {
-    if (state.chartActive) return
+    state.chartView = true
+    if (state.chartStream) return
     if (!state.sessionID) return
-    state.chartActive = true
-    requestChartData()
-    schedulePoll()
+    startChartData()
     emitter.emit(state.events.RENDER)
   })
 
-  // Session-management view: stop polling and cancel the in-flight fetch.
-  // The worker keeps recording datapoints into the hyperdb regardless
+  // Session-management view: close the stream, so the renderer stops receiving
+  // from the worker. The cursor and seen-window stay: reopening resumes with
+  // `since` at the last timestamp the renderer saw
   emitter.on('chart:disable', () => {
-    state.chartActive = false
-    if (state.chartTimer) {
-      clearTimeout(state.chartTimer)
-      state.chartTimer = null
-    }
-    if (state.chartStream) {
-      state.chartStream()
-      state.chartStream = null
-    }
+    state.chartView = false
+    if (!state.chartStream) return
+    state.chartStream()
+    state.chartStream = null
   })
 }

@@ -31,7 +31,7 @@ test('timeseries-db - insert flush read', async (t) => {
   t.is(pts.length, 2, 'find returns the two Brisket datapoints')
   t.is(pts[0].value, 1652, 'find first point matches write order')
 
-  const seriesRows = await ts.findSeries({ gte: { measurement: 'stoker', tags } })
+  const seriesRows = await toArray(await ts.findSeries({ gte: { measurement: 'stoker', tags } }))
   t.is(seriesRows.length, 2, 'findSeries prefix scan finds both session series')
   t.is(seriesRows[0].tags.length, 1, 'series row tags denormalized to pairs')
   t.is(seriesRows[0].tags[0].key, 'session', 'series row tag key round-trips')
@@ -45,11 +45,17 @@ test('timeseries-db - insert flush read', async (t) => {
   await ts.insert('stoker', [], 'Brisket', now, 1650)
   await ts.flush()
   const idleQuery = { measurement: 'stoker', tags: [] }
-  const idleRows = await ts.findSeries({ gte: idleQuery, lte: idleQuery })
+  const idleRows = await toArray(await ts.findSeries({ gte: idleQuery, lte: idleQuery }))
   t.is(idleRows.length, 1, 'untagged query matches only untagged series')
   const taggedQuery = { measurement: 'stoker', tags }
-  const taggedRows = await ts.findSeries({ gte: taggedQuery, lte: taggedQuery })
+  const taggedRows = await toArray(await ts.findSeries({ gte: taggedQuery, lte: taggedQuery }))
   t.is(taggedRows.length, 2, 'session-tagged query excludes untagged series')
 
   await db.close()
 })
+
+async function toArray(stream) {
+  const results = []
+  for await (const result of stream) results.push(result)
+  return results
+}

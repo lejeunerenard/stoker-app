@@ -3,7 +3,8 @@ import { textField } from './components/fields'
 import { menuView } from './components/menu'
 
 export function sessionManagementView (state, emit) {
-  // Chart polling is off this tab; mainView re-engages it with `chart:enable`
+  // The chart stream is closed off this tab; mainView reopens it with
+  // `chart:enable`
   emit('chart:disable')
 
   return html`

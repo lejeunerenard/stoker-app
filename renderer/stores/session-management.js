@@ -105,7 +105,7 @@ export function sessionManagementStore (state, emitter) {
         if (state.sessions.length) {
           emitter.emit(state.events.SESSION_SET, state.sessions[0])
         } else {
-          // no session left: stop chart polling and stop the worker tagging
+          // no session left: close the chart stream and stop the worker tagging
           // datapoints with the deleted session
           emitter.emit('chart:disable')
           emitter.emit('store:set', 'currentSession', '')

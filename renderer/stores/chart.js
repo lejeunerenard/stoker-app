@@ -52,8 +52,9 @@ export function chartStore (_, emitter) {
       // still accepted for non-DB callers
       const values = Array.isArray(value) ? value : [value]
 
-      // TODO unbounded: every point ever fetched stays in the dataset and is
-      // redrawn each poll (the hyperdb is the ledger this view could window)
+      // TODO unbounded: every point ever streamed stays in the dataset and is
+      // redrawn on each update (the hyperdb is the ledger this view could
+      // window)
       let found = false
       for (let i = 0; i < chart.data.datasets.length; i++) {
         const dataset = chart.data.datasets[i]

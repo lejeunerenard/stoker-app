@@ -71,9 +71,10 @@ export function bridgeStore (state, emitter) {
     deleteSession: (args) => rpc.deleteSession(args),
     workerEvent: (args) => rpc.workerEvent(args),
     applyUpdate: (args) => rpc.applyUpdate(args),
-    // No `end`/`close` is emitted here: hrpc v4's client RPCStream never fires
-    // one when the worker finishes a response, so the renderer schedules its
-    // own polls (see renderer/stores/stoker.js)
+    // The worker keeps this response stream open until the renderer closes it,
+    // so the returned closer is the only way the stream ends: hrpc v4's client
+    // RPCStream fires no `end`/`close` of its own anyway (see
+    // renderer/stores/stoker.js for how the closer is held)
     sessionData: (args, onData, onError) => {
       const stream = rpc.sessionData(args)
       if (onData) stream.on('data', onData)
